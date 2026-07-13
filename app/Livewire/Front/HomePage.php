@@ -10,7 +10,7 @@ class HomePage extends Component
     {
         return view('livewire.front.home-page')
             ->layout('layouts.front', [
-                'title' => 'الصفحة الرئيسية',
+                'title' => 'يمن ستاك | حلول رقمية متكاملة',
             ]);
     }
 }

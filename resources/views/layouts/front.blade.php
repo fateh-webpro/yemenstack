@@ -39,17 +39,17 @@
                     </a>
 
                     <nav class="hidden items-center gap-6 text-sm text-slate-200 lg:flex">
-                        <a href="/" class="transition hover:text-white">الرئيسية</a>
-                        <a href="#services" class="transition hover:text-white">الخدمات</a>
-                        <a href="#tracking" class="transition hover:text-white">تتبع طلب</a>
-                        <a href="#contact" class="transition hover:text-white">تواصل معنا</a>
+                        <a href="#home" class="transition hover:text-white">الرئيسية</a>
+                        <a href="#services" class="transition hover:text-white">الخدمة الحالية</a>
+                        <a href="#features" class="transition hover:text-white">المميزات</a>
+                        <a href="/admin" class="transition hover:text-white">لوحة الإدارة</a>
                     </nav>
 
                     <a
                         href="/admin"
                         class="inline-flex items-center rounded-full border border-emerald-400/40 bg-emerald-400/10 px-4 py-2 text-sm font-medium text-emerald-200 transition hover:bg-emerald-400/20 hover:text-white"
                     >
-                        دخول الإدارة
+                        لوحة الإدارة
                     </a>
                 </div>
             </header>
