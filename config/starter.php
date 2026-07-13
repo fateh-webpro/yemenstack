@@ -1,9 +1,11 @@
 <?php
 
 return [
-    'name' => 'حقيق الإسناد للخدمات العامة',
+    'name' => 'يمن ستاك - Yemen Stack',
 
-    'brand_name' => 'حقيق الإسناد',
+    'brand_name' => 'Yemen Stack',
+
+    'description' => 'شركة حلول رقمية متكاملة تقدم خدمات ومنتجات تقنية',
 
     'brand_logo' => 'images/brand/logo.png',
 
