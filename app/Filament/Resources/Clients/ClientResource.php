@@ -2,8 +2,6 @@
 
 namespace App\Filament\Resources\Clients;
 
-use App\Filament\Resources\Clients\Pages\CreateClient;
-use App\Filament\Resources\Clients\Pages\EditClient;
 use App\Filament\Resources\Clients\Pages\ListClients;
 use App\Filament\Resources\Clients\Pages\ViewClient;
 use App\Models\Client;
@@ -51,34 +49,36 @@ class ClientResource extends Resource
 
     public static function form(Schema $schema): Schema
     {
-        return $schema->components([
-            TextInput::make('name')
-                ->label('اسم العميل')
-                ->required()
-                ->maxLength(255),
-            TextInput::make('slug')
-                ->label('المعرّف')
-                ->maxLength(255)
-                ->unique(ignoreRecord: true),
-            TextInput::make('contact_name')
-                ->label('اسم مسؤول التواصل')
-                ->maxLength(255),
-            TextInput::make('phone')
-                ->label('رقم الهاتف')
-                ->tel()
-                ->maxLength(255),
-            TextInput::make('email')
-                ->label('البريد الإلكتروني')
-                ->email()
-                ->maxLength(255),
-            Toggle::make('is_active')
-                ->label('نشط')
-                ->default(true),
-            Textarea::make('notes')
-                ->label('ملاحظات')
-                ->rows(4)
-                ->columnSpanFull(),
-        ]);
+        return $schema
+            ->columns(2)
+            ->components([
+                TextInput::make('name')
+                    ->label('اسم العميل')
+                    ->required()
+                    ->maxLength(255),
+                TextInput::make('slug')
+                    ->label('المعرّف')
+                    ->maxLength(255)
+                    ->unique(ignoreRecord: true),
+                TextInput::make('contact_name')
+                    ->label('اسم مسؤول التواصل')
+                    ->maxLength(255),
+                TextInput::make('phone')
+                    ->label('رقم الهاتف')
+                    ->tel()
+                    ->maxLength(255),
+                TextInput::make('email')
+                    ->label('البريد الإلكتروني')
+                    ->email()
+                    ->maxLength(255),
+                Toggle::make('is_active')
+                    ->label('نشط')
+                    ->default(true),
+                Textarea::make('notes')
+                    ->label('ملاحظات')
+                    ->rows(4)
+                    ->columnSpanFull(),
+            ]);
     }
 
     public static function infolist(Schema $schema): Schema
@@ -104,16 +104,20 @@ class ClientResource extends Resource
                     ->label('اسم العميل')
                     ->searchable()
                     ->sortable(),
+                TextColumn::make('slug')
+                    ->label('المعرّف')
+                    ->searchable()
+                    ->toggleable(),
                 TextColumn::make('contact_name')
                     ->label('اسم مسؤول التواصل')
                     ->searchable()
                     ->toggleable(),
-                TextColumn::make('email')
-                    ->label('البريد الإلكتروني')
-                    ->searchable()
-                    ->toggleable(),
                 TextColumn::make('phone')
                     ->label('رقم الهاتف')
+                    ->searchable()
+                    ->toggleable(),
+                TextColumn::make('email')
+                    ->label('البريد الإلكتروني')
                     ->searchable()
                     ->toggleable(),
                 IconColumn::make('is_active')
@@ -149,9 +153,7 @@ class ClientResource extends Resource
     {
         return [
             'index' => ListClients::route('/'),
-            'create' => CreateClient::route('/create'),
             'view' => ViewClient::route('/{record}'),
-            'edit' => EditClient::route('/{record}/edit'),
         ];
     }
 }
