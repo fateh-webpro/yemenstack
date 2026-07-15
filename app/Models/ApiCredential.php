@@ -39,11 +39,7 @@ class ApiCredential extends Model
 
     public function scopeNotExpired(Builder $query): Builder
     {
-        return $query->where(function (Builder $query): void {
-            $query
-                ->whereNull('expires_at')
-                ->orWhereDate('expires_at', '>=', today());
-        });
+        return $query->whereDate('expires_at', '>=', today());
     }
 
     public static function generatePlainToken(): string

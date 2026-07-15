@@ -5,6 +5,7 @@ namespace App\Filament\Resources\ApiCredentials;
 use App\Filament\Resources\ApiCredentials\Pages\ListApiCredentials;
 use App\Filament\Resources\ApiCredentials\Pages\ViewApiCredential;
 use App\Models\ApiCredential;
+use App\Models\WhatsappAccount;
 use BackedEnum;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
@@ -19,6 +20,8 @@ use Filament\Forms\Components\Toggle;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\IconColumn;
@@ -58,12 +61,24 @@ class ApiCredentialResource extends Resource
                 ->label('العميل')
                 ->relationship('client', 'name')
                 ->searchable()
-                ->preload(),
+                ->preload()
+                ->live()
+                ->afterStateUpdated(fn (Set $set): mixed => $set('whatsapp_account_id', null))
+                ->required(),
             Select::make('whatsapp_account_id')
                 ->label('رقم واتساب')
-                ->relationship('whatsappAccount', 'name')
+                ->options(fn (Get $get): array => blank($get('client_id'))
+                    ? []
+                    : WhatsappAccount::query()
+                        ->where('client_id', $get('client_id'))
+                        ->orderBy('name')
+                        ->pluck('name', 'id')
+                        ->all())
                 ->searchable()
-                ->preload(),
+                ->preload()
+                ->disabled(fn (Get $get): bool => blank($get('client_id')))
+                ->helperText('اختر رقم واتساب تابعًا للعميل المحدد.')
+                ->required(),
             TextInput::make('name')
                 ->label('اسم المفتاح')
                 ->required()
@@ -84,7 +99,8 @@ class ApiCredentialResource extends Resource
                 ->visibleOn('edit'),
             DatePicker::make('expires_at')
                 ->label('تاريخ الانتهاء')
-                ->native(false),
+                ->native(false)
+                ->required(),
             Toggle::make('is_active')
                 ->label('نشط')
                 ->default(true),
