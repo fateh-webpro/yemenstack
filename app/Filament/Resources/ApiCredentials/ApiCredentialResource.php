@@ -2,8 +2,6 @@
 
 namespace App\Filament\Resources\ApiCredentials;
 
-use App\Filament\Resources\ApiCredentials\Pages\CreateApiCredential;
-use App\Filament\Resources\ApiCredentials\Pages\EditApiCredential;
 use App\Filament\Resources\ApiCredentials\Pages\ListApiCredentials;
 use App\Filament\Resources\ApiCredentials\Pages\ViewApiCredential;
 use App\Models\ApiCredential;
@@ -12,13 +10,13 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
-use Filament\Forms\Components\DateTimePicker;
-use Filament\Forms\Components\KeyValue;
+use Filament\Forms\Components\CheckboxList;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Infolists\Components\IconEntry;
-use Filament\Infolists\Components\KeyValueEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
@@ -70,26 +68,23 @@ class ApiCredentialResource extends Resource
                 ->label('اسم المفتاح')
                 ->required()
                 ->maxLength(255),
-            TextInput::make('token_hash')
-                ->label('بصمة المفتاح')
-                ->required()
-                ->password()
-                ->revealable()
-                ->unique(ignoreRecord: true)
-                ->maxLength(255),
-            KeyValue::make('abilities')
+            Placeholder::make('token_hash_notice')
+                ->label('التوكن')
+                ->content('سيتم إنشاء مفتاح API آمن تلقائيًا عند الحفظ، وسيظهر مرة واحدة فقط بعد الإنشاء.')
+                ->visibleOn('create'),
+            CheckboxList::make('abilities')
                 ->label('الصلاحيات')
-                ->keyLabel('المفتاح')
-                ->valueLabel('القيمة')
+                ->options(ApiCredential::abilityOptions())
+                ->columns(2)
+                ->gridDirection('row')
                 ->columnSpanFull(),
-            TextInput::make('last_used_at')
-                ->label('آخر استخدام')
-                ->placeholder('يُحدّث لاحقًا')
-                ->disabled()
-                ->dehydrated(false),
-            DateTimePicker::make('expires_at')
+            Placeholder::make('token_hash_preview')
+                ->label('بصمة المفتاح')
+                ->content(fn (?ApiCredential $record): string => self::maskTokenHash($record?->token_hash))
+                ->visibleOn('edit'),
+            DatePicker::make('expires_at')
                 ->label('تاريخ الانتهاء')
-                ->seconds(false),
+                ->native(false),
             Toggle::make('is_active')
                 ->label('نشط')
                 ->default(true),
@@ -105,11 +100,14 @@ class ApiCredentialResource extends Resource
             TextEntry::make('token_hash')
                 ->label('بصمة المفتاح')
                 ->formatStateUsing(fn (?string $state): string => self::maskTokenHash($state)),
-            KeyValueEntry::make('abilities')->label('الصلاحيات')->columnSpanFull(),
             IconEntry::make('is_active')->label('نشط')->boolean(),
             TextEntry::make('last_used_at')->label('آخر استخدام')->dateTime('Y-m-d h:i A')->placeholder('-'),
-            TextEntry::make('expires_at')->label('تاريخ الانتهاء')->dateTime('Y-m-d h:i A')->placeholder('-'),
+            TextEntry::make('expires_at')->label('تاريخ الانتهاء')->date('Y-m-d')->placeholder('-'),
             TextEntry::make('created_at')->label('تاريخ الإنشاء')->dateTime('Y-m-d h:i A')->placeholder('-'),
+            TextEntry::make('abilities')
+                ->label('الصلاحيات')
+                ->formatStateUsing(fn ($state): string => self::formatAbilities($state))
+                ->columnSpanFull(),
         ]);
     }
 
@@ -144,7 +142,7 @@ class ApiCredentialResource extends Resource
                     ->sortable(),
                 TextColumn::make('expires_at')
                     ->label('تاريخ الانتهاء')
-                    ->since()
+                    ->date('Y-m-d')
                     ->placeholder('-')
                     ->sortable(),
                 TextColumn::make('created_at')
@@ -182,9 +180,7 @@ class ApiCredentialResource extends Resource
     {
         return [
             'index' => ListApiCredentials::route('/'),
-            'create' => CreateApiCredential::route('/create'),
             'view' => ViewApiCredential::route('/{record}'),
-            'edit' => EditApiCredential::route('/{record}/edit'),
         ];
     }
 
@@ -195,5 +191,16 @@ class ApiCredentialResource extends Resource
         }
 
         return substr($state, 0, 8) . '...';
+    }
+
+    protected static function formatAbilities(mixed $state): string
+    {
+        if (blank($state)) {
+            return '-';
+        }
+
+        $abilities = is_array($state) ? $state : [];
+
+        return $abilities === [] ? '-' : implode(', ', $abilities);
     }
 }
