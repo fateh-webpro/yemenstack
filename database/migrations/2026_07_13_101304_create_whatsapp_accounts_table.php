@@ -12,7 +12,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('client_id')->nullable()->constrained('clients')->nullOnDelete();
             $table->string('name');
-            $table->string('phone_number')->nullable();
+            $table->string('phone_number');
             $table->string('session_name')->unique();
             $table->string('status')->default('disconnected');
             $table->timestamp('last_seen_at')->nullable();

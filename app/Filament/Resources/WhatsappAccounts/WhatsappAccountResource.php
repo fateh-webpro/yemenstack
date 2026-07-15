@@ -2,8 +2,6 @@
 
 namespace App\Filament\Resources\WhatsappAccounts;
 
-use App\Filament\Resources\WhatsappAccounts\Pages\CreateWhatsappAccount;
-use App\Filament\Resources\WhatsappAccounts\Pages\EditWhatsappAccount;
 use App\Filament\Resources\WhatsappAccounts\Pages\ListWhatsappAccounts;
 use App\Filament\Resources\WhatsappAccounts\Pages\ViewWhatsappAccount;
 use App\Models\WhatsappAccount;
@@ -53,48 +51,44 @@ class WhatsappAccountResource extends Resource
 
     public static function form(Schema $schema): Schema
     {
-        return $schema->components([
-            Select::make('client_id')
-                ->label('العميل')
-                ->relationship('client', 'name')
-                ->searchable()
-                ->preload(),
-            TextInput::make('name')
-                ->label('اسم الرقم')
-                ->required()
-                ->maxLength(255),
-            TextInput::make('phone_number')
-                ->label('رقم الهاتف')
-                ->tel()
-                ->maxLength(255),
-            TextInput::make('session_name')
-                ->label('اسم الجلسة')
-                ->required()
-                ->maxLength(255)
-                ->unique(ignoreRecord: true),
-            Select::make('status')
-                ->label('الحالة')
-                ->options(WhatsappAccount::statusLabels())
-                ->default(WhatsappAccount::STATUS_DISCONNECTED)
-                ->required(),
-            TextInput::make('last_seen_at')
-                ->label('آخر ظهور')
-                ->placeholder('يُحدّث لاحقًا عبر المحرك')
-                ->disabled()
-                ->dehydrated(false),
-            TextInput::make('qr_expires_at')
-                ->label('انتهاء QR')
-                ->placeholder('يُحدّث لاحقًا عبر المحرك')
-                ->disabled()
-                ->dehydrated(false),
-            Toggle::make('is_active')
-                ->label('نشط')
-                ->default(true),
-            Textarea::make('notes')
-                ->label('ملاحظات')
-                ->rows(4)
-                ->columnSpanFull(),
-        ]);
+        return $schema
+            ->columns(2)
+            ->components([
+                Select::make('client_id')
+                    ->label('العميل')
+                    ->relationship('client', 'name')
+                    ->searchable()
+                    ->preload()
+                    ->required(),
+                TextInput::make('name')
+                    ->label('اسم الرقم')
+                    ->required()
+                    ->maxLength(255),
+                TextInput::make('phone_number')
+                    ->label('رقم الهاتف')
+                    ->helperText('اكتب الرقم بصيغة دولية بدون مسافات قدر الإمكان، مثال: 967777000000')
+                    ->required()
+                    ->tel()
+                    ->maxLength(255),
+                TextInput::make('session_name')
+                    ->label('اسم الجلسة')
+                    ->helperText('اسم فني للجلسة، يفضل أن يكون بالإنجليزية وبدون مسافات، مثال: internal_test_01')
+                    ->required()
+                    ->maxLength(255)
+                    ->unique(ignoreRecord: true),
+                Select::make('status')
+                    ->label('الحالة')
+                    ->options(WhatsappAccount::statusLabels())
+                    ->default(WhatsappAccount::STATUS_DISCONNECTED)
+                    ->required(),
+                Toggle::make('is_active')
+                    ->label('نشط')
+                    ->default(true),
+                Textarea::make('notes')
+                    ->label('ملاحظات')
+                    ->rows(4)
+                    ->columnSpanFull(),
+            ]);
     }
 
     public static function infolist(Schema $schema): Schema
@@ -123,6 +117,7 @@ class WhatsappAccountResource extends Resource
                 TextColumn::make('client.name')
                     ->label('العميل')
                     ->searchable()
+                    ->sortable()
                     ->toggleable(),
                 TextColumn::make('name')
                     ->label('اسم الرقم')
@@ -130,10 +125,12 @@ class WhatsappAccountResource extends Resource
                     ->sortable(),
                 TextColumn::make('phone_number')
                     ->label('رقم الهاتف')
-                    ->searchable(),
+                    ->searchable()
+                    ->toggleable(),
                 TextColumn::make('session_name')
                     ->label('اسم الجلسة')
                     ->searchable()
+                    ->toggleable()
                     ->copyable(),
                 TextColumn::make('status')
                     ->label('الحالة')
@@ -148,7 +145,8 @@ class WhatsappAccountResource extends Resource
                     ->label('آخر ظهور')
                     ->since()
                     ->placeholder('-')
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(),
                 TextColumn::make('created_at')
                     ->label('تاريخ الإنشاء')
                     ->since()
@@ -184,9 +182,7 @@ class WhatsappAccountResource extends Resource
     {
         return [
             'index' => ListWhatsappAccounts::route('/'),
-            'create' => CreateWhatsappAccount::route('/create'),
             'view' => ViewWhatsappAccount::route('/{record}'),
-            'edit' => EditWhatsappAccount::route('/{record}/edit'),
         ];
     }
 
