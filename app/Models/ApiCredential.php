@@ -55,8 +55,29 @@ class ApiCredential extends Model
     public static function findByPlainToken(string $plainToken): ?self
     {
         return self::query()
+            ->with(['client', 'whatsappAccount'])
             ->where('token_hash', self::hashToken($plainToken))
             ->first();
+    }
+
+    public function hasAbility(string $ability): bool
+    {
+        $abilities = $this->abilities;
+
+        if (! is_array($abilities) || ($abilities === [])) {
+            return false;
+        }
+
+        return in_array($ability, $abilities, true);
+    }
+
+    public function isUsable(): bool
+    {
+        return $this->is_active
+            && filled($this->expires_at)
+            && $this->expires_at->toDateString() >= today()->toDateString()
+            && ($this->client?->is_active === true)
+            && ($this->whatsappAccount?->is_active === true);
     }
 
     public static function abilityOptions(): array
