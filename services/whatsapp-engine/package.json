@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node src/index.js",
-    "health": "node src/health.js"
+    "health": "node src/health.js",
+    "poll:pending": "node src/pendingMessages.js"
   },
   "dependencies": {}
 }

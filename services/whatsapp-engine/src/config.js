@@ -4,6 +4,10 @@ const toNumber = (value, fallback) => {
   return Number.isNaN(parsed) ? fallback : parsed;
 };
 
+const clamp = (value, min, max) => {
+  return Math.min(Math.max(value, min), max);
+};
+
 const maskToken = (token) => {
   if (!token) {
     return '';
@@ -22,6 +26,8 @@ const config = {
   pollIntervalMs: toNumber(process.env.ENGINE_POLL_INTERVAL_MS, 5000),
   laravelBaseUrl: process.env.LARAVEL_BASE_URL || 'http://127.0.0.1:8000',
   engineApiToken: process.env.ENGINE_API_TOKEN || '',
+  pendingMessagesPath: process.env.ENGINE_PENDING_MESSAGES_PATH || '/api/v1/whatsapp/engine/messages/pending',
+  fetchLimit: clamp(toNumber(process.env.ENGINE_FETCH_LIMIT, 10), 1, 50),
 };
 
 const getPublicConfig = () => ({
@@ -29,6 +35,8 @@ const getPublicConfig = () => ({
   engineName: config.engineName,
   pollIntervalMs: config.pollIntervalMs,
   laravelBaseUrl: config.laravelBaseUrl,
+  pendingMessagesPath: config.pendingMessagesPath,
+  fetchLimit: config.fetchLimit,
   engineApiTokenMasked: maskToken(config.engineApiToken),
 });
 
