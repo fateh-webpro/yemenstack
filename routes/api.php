@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\MessageController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -18,4 +19,6 @@ Route::prefix('v1')->middleware('api.credential')->group(function (): void {
             'expires_at' => $credential?->expires_at?->toDateString(),
         ]);
     });
+
+    Route::post('/messages', [MessageController::class, 'store']);
 });
