@@ -1,0 +1,12 @@
+{
+  "name": "yemenstack-whatsapp-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js",
+    "health": "node src/health.js"
+  },
+  "dependencies": {}
+}
