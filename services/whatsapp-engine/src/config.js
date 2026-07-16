@@ -27,6 +27,7 @@ const config = {
   laravelBaseUrl: process.env.LARAVEL_BASE_URL || 'http://127.0.0.1:8000',
   engineApiToken: process.env.ENGINE_API_TOKEN || '',
   pendingMessagesPath: process.env.ENGINE_PENDING_MESSAGES_PATH || '/api/v1/whatsapp/engine/messages/pending',
+  claimMessagePathTemplate: process.env.ENGINE_CLAIM_MESSAGE_PATH_TEMPLATE || '/api/v1/whatsapp/engine/messages/:id/claim',
   fetchLimit: clamp(toNumber(process.env.ENGINE_FETCH_LIMIT, 10), 1, 50),
 };
 
@@ -36,6 +37,7 @@ const getPublicConfig = () => ({
   pollIntervalMs: config.pollIntervalMs,
   laravelBaseUrl: config.laravelBaseUrl,
   pendingMessagesPath: config.pendingMessagesPath,
+  claimMessagePathTemplate: config.claimMessagePathTemplate,
   fetchLimit: config.fetchLimit,
   engineApiTokenMasked: maskToken(config.engineApiToken),
 });

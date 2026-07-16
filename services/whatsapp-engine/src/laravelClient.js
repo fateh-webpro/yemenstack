@@ -1,5 +1,29 @@
 const { config } = require('./config');
 
+const ensureToken = () => {
+  if (!config.engineApiToken) {
+    const error = new Error('ENGINE_API_TOKEN is not configured.');
+    error.code = 'ENGINE_API_TOKEN_MISSING';
+    throw error;
+  }
+};
+
+const parseJson = async (response) => {
+  try {
+    return await response.json();
+  } catch (error) {
+    return null;
+  }
+};
+
+const throwHttpError = (response, payload) => {
+  const error = new Error(payload?.message || `Laravel API request failed with status ${response.status}.`);
+  error.code = 'LARAVEL_API_ERROR';
+  error.status = response.status;
+  error.payload = payload;
+  throw error;
+};
+
 const buildPendingMessagesUrl = (limit = config.fetchLimit) => {
   const baseUrl = new URL(config.laravelBaseUrl);
   const url = new URL(config.pendingMessagesPath, baseUrl);
@@ -9,12 +33,15 @@ const buildPendingMessagesUrl = (limit = config.fetchLimit) => {
   return url;
 };
 
+const buildClaimMessageUrl = (messageId) => {
+  const baseUrl = new URL(config.laravelBaseUrl);
+  const path = config.claimMessagePathTemplate.replace(':id', String(messageId));
+
+  return new URL(path, baseUrl);
+};
+
 const fetchPendingMessages = async (limit = config.fetchLimit) => {
-  if (!config.engineApiToken) {
-    const error = new Error('ENGINE_API_TOKEN is not configured.');
-    error.code = 'ENGINE_API_TOKEN_MISSING';
-    throw error;
-  }
+  ensureToken();
 
   const url = buildPendingMessagesUrl(limit);
   const response = await fetch(url, {
@@ -25,20 +52,33 @@ const fetchPendingMessages = async (limit = config.fetchLimit) => {
     },
   });
 
-  let payload = null;
-
-  try {
-    payload = await response.json();
-  } catch (error) {
-    payload = null;
-  }
+  const payload = await parseJson(response);
 
   if (!response.ok) {
-    const error = new Error(payload?.message || `Laravel API request failed with status ${response.status}.`);
-    error.code = 'LARAVEL_API_ERROR';
-    error.status = response.status;
-    error.payload = payload;
-    throw error;
+    throwHttpError(response, payload);
+  }
+
+  return payload;
+};
+
+const claimMessage = async (messageId) => {
+  ensureToken();
+
+  const url = buildClaimMessageUrl(messageId);
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.engineApiToken}`,
+    },
+    body: JSON.stringify({}),
+  });
+
+  const payload = await parseJson(response);
+
+  if (!response.ok) {
+    throwHttpError(response, payload);
   }
 
   return payload;
@@ -46,5 +86,7 @@ const fetchPendingMessages = async (limit = config.fetchLimit) => {
 
 module.exports = {
   buildPendingMessagesUrl,
+  buildClaimMessageUrl,
   fetchPendingMessages,
+  claimMessage,
 };
