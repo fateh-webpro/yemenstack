@@ -3,13 +3,11 @@
 namespace App\Filament\Resources\Messages;
 
 use App\Filament\Resources\Messages\Pages\ListMessages;
-use App\Filament\Resources\Messages\Pages\ViewMessage;
 use App\Models\Message;
 use BackedEnum;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
-use Filament\Infolists\Components\KeyValueEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
@@ -62,30 +60,42 @@ class MessageResource extends Resource
 
     public static function infolist(Schema $schema): Schema
     {
-        return $schema->components([
+        return $schema->columns(2)->components([
+            TextEntry::make('id')->label('المعرف'),
             TextEntry::make('client.name')->label('العميل')->placeholder('-'),
             TextEntry::make('whatsappAccount.name')->label('رقم واتساب')->placeholder('-'),
             TextEntry::make('direction')
                 ->label('الاتجاه')
                 ->badge()
-                ->formatStateUsing(fn (string $state): string => self::directionLabel($state)),
+                ->color(fn (?string $state): string | array => self::directionColor($state))
+                ->formatStateUsing(fn (?string $state): string => self::directionLabel($state)),
+            TextEntry::make('recipient')->label('المستلم')->placeholder('-'),
+            TextEntry::make('sender')->label('المرسل')->placeholder('-'),
+            TextEntry::make('message_type')
+                ->label('النوع')
+                ->badge()
+                ->formatStateUsing(fn (?string $state): string => self::typeLabel($state)),
             TextEntry::make('status')
                 ->label('الحالة')
                 ->badge()
-                ->formatStateUsing(fn (string $state): string => self::statusLabel($state)),
-            TextEntry::make('message_type')
-                ->label('نوع الرسالة')
-                ->formatStateUsing(fn (?string $state): string => self::typeLabel($state)),
-            TextEntry::make('sender')->label('المرسل')->placeholder('-'),
-            TextEntry::make('recipient')->label('المستلم')->placeholder('-'),
+                ->color(fn (?string $state): string | array => self::statusColor($state))
+                ->formatStateUsing(fn (?string $state): string => self::statusLabel($state)),
+            TextEntry::make('body')
+                ->label('نص الرسالة')
+                ->placeholder('-')
+                ->columnSpanFull(),
+            TextEntry::make('payload')
+                ->label('البيانات الخام')
+                ->formatStateUsing(fn ($state): string => self::formatPayload($state))
+                ->placeholder('-')
+                ->columnSpanFull(),
             TextEntry::make('external_message_id')->label('رقم الرسالة الخارجي')->placeholder('-'),
             TextEntry::make('scheduled_at')->label('وقت الجدولة')->dateTime('Y-m-d h:i A')->placeholder('-'),
             TextEntry::make('sent_at')->label('وقت الإرسال')->dateTime('Y-m-d h:i A')->placeholder('-'),
             TextEntry::make('failed_at')->label('وقت الفشل')->dateTime('Y-m-d h:i A')->placeholder('-'),
             TextEntry::make('error_message')->label('رسالة الخطأ')->placeholder('-')->columnSpanFull(),
-            TextEntry::make('body')->label('نص الرسالة')->placeholder('-')->columnSpanFull(),
-            KeyValueEntry::make('payload')->label('البيانات الخام')->columnSpanFull(),
             TextEntry::make('created_at')->label('تاريخ الإنشاء')->dateTime('Y-m-d h:i A')->placeholder('-'),
+            TextEntry::make('updated_at')->label('آخر تحديث')->dateTime('Y-m-d h:i A')->placeholder('-'),
         ]);
     }
 
@@ -93,53 +103,56 @@ class MessageResource extends Resource
     {
         return $table
             ->columns([
+                TextColumn::make('id')
+                    ->label('المعرف')
+                    ->sortable(),
                 TextColumn::make('client.name')
                     ->label('العميل')
                     ->searchable()
+                    ->sortable()
                     ->toggleable(),
                 TextColumn::make('whatsappAccount.name')
                     ->label('رقم واتساب')
                     ->searchable()
+                    ->sortable()
                     ->toggleable(),
                 TextColumn::make('direction')
                     ->label('الاتجاه')
                     ->badge()
-                    ->formatStateUsing(fn (string $state): string => self::directionLabel($state))
+                    ->color(fn (?string $state): string | array => self::directionColor($state))
+                    ->formatStateUsing(fn (?string $state): string => self::directionLabel($state))
                     ->sortable(),
+                TextColumn::make('recipient')
+                    ->label('المستلم')
+                    ->searchable(),
                 TextColumn::make('sender')
                     ->label('المرسل')
                     ->searchable()
                     ->toggleable(),
-                TextColumn::make('recipient')
-                    ->label('المستلم')
-                    ->searchable()
-                    ->toggleable(),
                 TextColumn::make('message_type')
-                    ->label('نوع الرسالة')
+                    ->label('النوع')
+                    ->badge()
                     ->formatStateUsing(fn (?string $state): string => self::typeLabel($state))
                     ->sortable(),
                 TextColumn::make('status')
                     ->label('الحالة')
                     ->badge()
-                    ->formatStateUsing(fn (string $state): string => self::statusLabel($state))
+                    ->color(fn (?string $state): string | array => self::statusColor($state))
+                    ->formatStateUsing(fn (?string $state): string => self::statusLabel($state))
                     ->sortable(),
-                TextColumn::make('external_message_id')
-                    ->label('رقم الرسالة الخارجي')
+                TextColumn::make('body')
+                    ->label('نص الرسالة')
                     ->searchable()
-                    ->toggleable(),
-                TextColumn::make('sent_at')
-                    ->label('وقت الإرسال')
-                    ->since()
-                    ->placeholder('-')
-                    ->sortable(),
-                TextColumn::make('failed_at')
-                    ->label('وقت الفشل')
-                    ->since()
+                    ->limit(80)
+                    ->tooltip(fn (?string $state): ?string => filled($state) ? $state : null),
+                TextColumn::make('scheduled_at')
+                    ->label('وقت الجدولة')
+                    ->dateTime('Y-m-d h:i A')
                     ->placeholder('-')
                     ->sortable(),
                 TextColumn::make('created_at')
                     ->label('تاريخ الإنشاء')
-                    ->since()
+                    ->dateTime('Y-m-d h:i A')
                     ->sortable(),
             ])
             ->filters([
@@ -151,7 +164,7 @@ class MessageResource extends Resource
                     ->options(Message::statusLabels()),
             ])
             ->recordActions([
-                ViewAction::make(),
+                ViewAction::make()->slideOver(),
             ])
             ->defaultSort('created_at', 'desc');
     }
@@ -180,7 +193,6 @@ class MessageResource extends Resource
     {
         return [
             'index' => ListMessages::route('/'),
-            'view' => ViewMessage::route('/{record}'),
         ];
     }
 
@@ -197,5 +209,34 @@ class MessageResource extends Resource
     protected static function typeLabel(?string $state): string
     {
         return Message::typeLabels()[$state] ?? ($state ?: '-');
+    }
+
+    protected static function directionColor(?string $state): string | array
+    {
+        return match ($state) {
+            Message::DIRECTION_OUTBOUND => 'info',
+            Message::DIRECTION_INBOUND => 'success',
+            default => 'gray',
+        };
+    }
+
+    protected static function statusColor(?string $state): string | array
+    {
+        return match ($state) {
+            Message::STATUS_PENDING => 'warning',
+            Message::STATUS_QUEUED => 'info',
+            Message::STATUS_SENT, Message::STATUS_DELIVERED, Message::STATUS_READ => 'success',
+            Message::STATUS_FAILED => 'danger',
+            default => 'gray',
+        };
+    }
+
+    protected static function formatPayload(mixed $state): string
+    {
+        if (blank($state)) {
+            return '-';
+        }
+
+        return json_encode($state, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) ?: '-';
     }
 }
