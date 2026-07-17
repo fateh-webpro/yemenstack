@@ -33,9 +33,25 @@ const buildPendingMessagesUrl = (limit = config.fetchLimit) => {
   return url;
 };
 
+const buildQueuedMessagesUrl = (limit = config.fetchLimit) => {
+  const baseUrl = new URL(config.laravelBaseUrl);
+  const url = new URL(config.queuedMessagesPath, baseUrl);
+
+  url.searchParams.set('limit', String(limit));
+
+  return url;
+};
+
 const buildClaimMessageUrl = (messageId) => {
   const baseUrl = new URL(config.laravelBaseUrl);
   const path = config.claimMessagePathTemplate.replace(':id', String(messageId));
+
+  return new URL(path, baseUrl);
+};
+
+const buildMarkSentUrl = (messageId) => {
+  const baseUrl = new URL(config.laravelBaseUrl);
+  const path = config.markSentPathTemplate.replace(':id', String(messageId));
 
   return new URL(path, baseUrl);
 };
@@ -44,6 +60,27 @@ const fetchPendingMessages = async (limit = config.fetchLimit) => {
   ensureToken();
 
   const url = buildPendingMessagesUrl(limit);
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${config.engineApiToken}`,
+    },
+  });
+
+  const payload = await parseJson(response);
+
+  if (!response.ok) {
+    throwHttpError(response, payload);
+  }
+
+  return payload;
+};
+
+const fetchQueuedMessages = async (limit = config.fetchLimit) => {
+  ensureToken();
+
+  const url = buildQueuedMessagesUrl(limit);
   const response = await fetch(url, {
     method: 'GET',
     headers: {
@@ -84,9 +121,36 @@ const claimMessage = async (messageId) => {
   return payload;
 };
 
+const markMessageSent = async (messageId) => {
+  ensureToken();
+
+  const url = buildMarkSentUrl(messageId);
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.engineApiToken}`,
+    },
+    body: JSON.stringify({ mode: 'simulation' }),
+  });
+
+  const payload = await parseJson(response);
+
+  if (!response.ok) {
+    throwHttpError(response, payload);
+  }
+
+  return payload;
+};
+
 module.exports = {
   buildPendingMessagesUrl,
+  buildQueuedMessagesUrl,
   buildClaimMessageUrl,
+  buildMarkSentUrl,
   fetchPendingMessages,
+  fetchQueuedMessages,
   claimMessage,
+  markMessageSent,
 };
