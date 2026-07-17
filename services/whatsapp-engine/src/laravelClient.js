@@ -27,82 +27,69 @@ const throwHttpError = (response, payload) => {
 const buildPendingMessagesUrl = (limit = config.fetchLimit) => {
   const baseUrl = new URL(config.laravelBaseUrl);
   const url = new URL(config.pendingMessagesPath, baseUrl);
-
   url.searchParams.set('limit', String(limit));
-
   return url;
 };
 
 const buildQueuedMessagesUrl = (limit = config.fetchLimit) => {
   const baseUrl = new URL(config.laravelBaseUrl);
   const url = new URL(config.queuedMessagesPath, baseUrl);
-
   url.searchParams.set('limit', String(limit));
-
   return url;
+};
+
+const buildAccountStatusUrl = () => {
+  const baseUrl = new URL(config.laravelBaseUrl);
+  return new URL(config.accountStatusPath, baseUrl);
 };
 
 const buildClaimMessageUrl = (messageId) => {
   const baseUrl = new URL(config.laravelBaseUrl);
   const path = config.claimMessagePathTemplate.replace(':id', String(messageId));
-
   return new URL(path, baseUrl);
 };
 
 const buildMarkSentUrl = (messageId) => {
   const baseUrl = new URL(config.laravelBaseUrl);
   const path = config.markSentPathTemplate.replace(':id', String(messageId));
-
   return new URL(path, baseUrl);
 };
 
 const fetchPendingMessages = async (limit = config.fetchLimit) => {
   ensureToken();
-
-  const url = buildPendingMessagesUrl(limit);
-  const response = await fetch(url, {
+  const response = await fetch(buildPendingMessagesUrl(limit), {
     method: 'GET',
     headers: {
       Accept: 'application/json',
       Authorization: `Bearer ${config.engineApiToken}`,
     },
   });
-
   const payload = await parseJson(response);
-
   if (!response.ok) {
     throwHttpError(response, payload);
   }
-
   return payload;
 };
 
 const fetchQueuedMessages = async (limit = config.fetchLimit) => {
   ensureToken();
-
-  const url = buildQueuedMessagesUrl(limit);
-  const response = await fetch(url, {
+  const response = await fetch(buildQueuedMessagesUrl(limit), {
     method: 'GET',
     headers: {
       Accept: 'application/json',
       Authorization: `Bearer ${config.engineApiToken}`,
     },
   });
-
   const payload = await parseJson(response);
-
   if (!response.ok) {
     throwHttpError(response, payload);
   }
-
   return payload;
 };
 
 const claimMessage = async (messageId) => {
   ensureToken();
-
-  const url = buildClaimMessageUrl(messageId);
-  const response = await fetch(url, {
+  const response = await fetch(buildClaimMessageUrl(messageId), {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -111,21 +98,16 @@ const claimMessage = async (messageId) => {
     },
     body: JSON.stringify({}),
   });
-
   const payload = await parseJson(response);
-
   if (!response.ok) {
     throwHttpError(response, payload);
   }
-
   return payload;
 };
 
 const markMessageSent = async (messageId) => {
   ensureToken();
-
-  const url = buildMarkSentUrl(messageId);
-  const response = await fetch(url, {
+  const response = await fetch(buildMarkSentUrl(messageId), {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -134,23 +116,40 @@ const markMessageSent = async (messageId) => {
     },
     body: JSON.stringify({ mode: 'simulation' }),
   });
-
   const payload = await parseJson(response);
-
   if (!response.ok) {
     throwHttpError(response, payload);
   }
+  return payload;
+};
 
+const updateWhatsappAccountStatus = async (status, extra = {}) => {
+  ensureToken();
+  const response = await fetch(buildAccountStatusUrl(), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.engineApiToken}`,
+    },
+    body: JSON.stringify({ status, ...extra }),
+  });
+  const payload = await parseJson(response);
+  if (!response.ok) {
+    throwHttpError(response, payload);
+  }
   return payload;
 };
 
 module.exports = {
   buildPendingMessagesUrl,
   buildQueuedMessagesUrl,
+  buildAccountStatusUrl,
   buildClaimMessageUrl,
   buildMarkSentUrl,
   fetchPendingMessages,
   fetchQueuedMessages,
   claimMessage,
   markMessageSent,
+  updateWhatsappAccountStatus,
 };

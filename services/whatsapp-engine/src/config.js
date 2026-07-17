@@ -8,6 +8,14 @@ const clamp = (value, min, max) => {
   return Math.min(Math.max(value, min), max);
 };
 
+const toBoolean = (value, fallback) => {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
+};
+
 const maskToken = (token) => {
   if (!token) {
     return '';
@@ -28,8 +36,13 @@ const config = {
   engineApiToken: process.env.ENGINE_API_TOKEN || '',
   pendingMessagesPath: process.env.ENGINE_PENDING_MESSAGES_PATH || '/api/v1/whatsapp/engine/messages/pending',
   queuedMessagesPath: process.env.ENGINE_QUEUED_MESSAGES_PATH || '/api/v1/whatsapp/engine/messages/queued',
+  accountStatusPath: process.env.ENGINE_ACCOUNT_STATUS_PATH || '/api/v1/whatsapp/engine/account/status',
   claimMessagePathTemplate: process.env.ENGINE_CLAIM_MESSAGE_PATH_TEMPLATE || '/api/v1/whatsapp/engine/messages/:id/claim',
   markSentPathTemplate: process.env.ENGINE_MARK_SENT_PATH_TEMPLATE || '/api/v1/whatsapp/engine/messages/:id/mark-sent',
+  whatsappSessionId: process.env.WHATSAPP_SESSION_ID || 'default',
+  whatsappChromePath: process.env.WHATSAPP_CHROME_PATH || '',
+  whatsappHeadless: toBoolean(process.env.WHATSAPP_HEADLESS, true),
+  whatsappQrTerminalSmall: toBoolean(process.env.WHATSAPP_QR_TERMINAL_SMALL, true),
   fetchLimit: clamp(toNumber(process.env.ENGINE_FETCH_LIMIT, 10), 1, 50),
 };
 
@@ -40,8 +53,13 @@ const getPublicConfig = () => ({
   laravelBaseUrl: config.laravelBaseUrl,
   pendingMessagesPath: config.pendingMessagesPath,
   queuedMessagesPath: config.queuedMessagesPath,
+  accountStatusPath: config.accountStatusPath,
   claimMessagePathTemplate: config.claimMessagePathTemplate,
   markSentPathTemplate: config.markSentPathTemplate,
+  whatsappSessionId: config.whatsappSessionId,
+  whatsappChromePath: config.whatsappChromePath,
+  whatsappHeadless: config.whatsappHeadless,
+  whatsappQrTerminalSmall: config.whatsappQrTerminalSmall,
   fetchLimit: config.fetchLimit,
   engineApiTokenMasked: maskToken(config.engineApiToken),
 });

@@ -4,17 +4,22 @@ namespace App\Filament\Resources\Messages;
 
 use App\Filament\Resources\Messages\Pages\ListMessages;
 use App\Models\Message;
+use App\Models\MessageAttempt;
 use BackedEnum;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
+use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
+use Filament\Support\Enums\FontFamily;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use UnitEnum;
 
 class MessageResource extends Resource
@@ -40,6 +45,11 @@ class MessageResource extends Resource
         return 'الرسائل';
     }
 
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->with(['client', 'whatsappAccount', 'attempts']);
+    }
+
     public static function form(Schema $schema): Schema
     {
         return $schema->components([
@@ -60,42 +70,83 @@ class MessageResource extends Resource
 
     public static function infolist(Schema $schema): Schema
     {
-        return $schema->columns(2)->components([
-            TextEntry::make('id')->label('المعرف'),
-            TextEntry::make('client.name')->label('العميل')->placeholder('-'),
-            TextEntry::make('whatsappAccount.name')->label('رقم واتساب')->placeholder('-'),
-            TextEntry::make('direction')
-                ->label('الاتجاه')
-                ->badge()
-                ->color(fn (?string $state): string | array => self::directionColor($state))
-                ->formatStateUsing(fn (?string $state): string => self::directionLabel($state)),
-            TextEntry::make('recipient')->label('المستلم')->placeholder('-'),
-            TextEntry::make('sender')->label('المرسل')->placeholder('-'),
-            TextEntry::make('message_type')
-                ->label('النوع')
-                ->badge()
-                ->formatStateUsing(fn (?string $state): string => self::typeLabel($state)),
-            TextEntry::make('status')
-                ->label('الحالة')
-                ->badge()
-                ->color(fn (?string $state): string | array => self::statusColor($state))
-                ->formatStateUsing(fn (?string $state): string => self::statusLabel($state)),
-            TextEntry::make('body')
-                ->label('نص الرسالة')
-                ->placeholder('-')
-                ->columnSpanFull(),
-            TextEntry::make('payload')
-                ->label('البيانات الخام')
-                ->formatStateUsing(fn ($state): string => self::formatPayload($state))
-                ->placeholder('-')
-                ->columnSpanFull(),
-            TextEntry::make('external_message_id')->label('رقم الرسالة الخارجي')->placeholder('-'),
-            TextEntry::make('scheduled_at')->label('وقت الجدولة')->dateTime('Y-m-d h:i A')->placeholder('-'),
-            TextEntry::make('sent_at')->label('وقت الإرسال')->dateTime('Y-m-d h:i A')->placeholder('-'),
-            TextEntry::make('failed_at')->label('وقت الفشل')->dateTime('Y-m-d h:i A')->placeholder('-'),
-            TextEntry::make('error_message')->label('رسالة الخطأ')->placeholder('-')->columnSpanFull(),
-            TextEntry::make('created_at')->label('تاريخ الإنشاء')->dateTime('Y-m-d h:i A')->placeholder('-'),
-            TextEntry::make('updated_at')->label('آخر تحديث')->dateTime('Y-m-d h:i A')->placeholder('-'),
+        return $schema->components([
+            Section::make('معلومات الرسالة')
+                ->schema([
+                    TextEntry::make('id')->label('Message ID'),
+                    TextEntry::make('client.name')->label('العميل')->placeholder('-'),
+                    TextEntry::make('whatsappAccount.name')->label('رقم واتساب')->placeholder('-'),
+                    TextEntry::make('direction')
+                        ->label('الاتجاه')
+                        ->badge()
+                        ->color(fn (?string $state): string | array => self::directionColor($state))
+                        ->formatStateUsing(fn (?string $state): string => self::directionLabel($state)),
+                    TextEntry::make('message_type')
+                        ->label('نوع الرسالة')
+                        ->badge()
+                        ->formatStateUsing(fn (?string $state): string => self::typeLabel($state)),
+                    TextEntry::make('status')
+                        ->label('الحالة')
+                        ->badge()
+                        ->color(fn (?string $state): string | array => self::statusColor($state))
+                        ->formatStateUsing(fn (?string $state): string => self::statusLabel($state)),
+                    TextEntry::make('recipient')->label('المستلم')->placeholder('-'),
+                    TextEntry::make('sender')->label('المرسل')->placeholder('-'),
+                ])
+                ->columns(2),
+            Section::make('محتوى الرسالة')
+                ->schema([
+                    TextEntry::make('body')
+                        ->label('نص الرسالة')
+                        ->placeholder('-')
+                        ->columnSpanFull(),
+                    TextEntry::make('payload')
+                        ->label('البيانات الخام')
+                        ->formatStateUsing(fn (mixed $state): string => self::formatJsonValue($state))
+                        ->placeholder('-')
+                        ->fontFamily(FontFamily::Mono)
+                        ->copyable()
+                        ->columnSpanFull(),
+                ])
+                ->columns(1),
+            Section::make('تتبع دورة الرسالة')
+                ->schema([
+                    TextEntry::make('scheduled_at')->label('وقت الجدولة')->dateTime('Y-m-d h:i A')->placeholder('-'),
+                    TextEntry::make('created_at')->label('تاريخ الإنشاء')->dateTime('Y-m-d h:i A')->placeholder('-'),
+                    TextEntry::make('updated_at')->label('آخر تحديث')->dateTime('Y-m-d h:i A')->placeholder('-'),
+                    TextEntry::make('sent_at')->label('وقت الإرسال')->dateTime('Y-m-d h:i A')->placeholder('-'),
+                    TextEntry::make('failed_at')->label('وقت الفشل')->dateTime('Y-m-d h:i A')->placeholder('-'),
+                    TextEntry::make('external_message_id')->label('رقم الرسالة الخارجي')->placeholder('-'),
+                    TextEntry::make('error_message')->label('رسالة الخطأ')->placeholder('-')->columnSpanFull(),
+                ])
+                ->columns(2),
+            Section::make('محاولات المعالجة')
+                ->schema([
+                    RepeatableEntry::make('attempts')
+                        ->label('Message Attempts')
+                        ->contained(false)
+                        ->schema([
+                            TextEntry::make('id')->label('المعرف'),
+                            TextEntry::make('attempt_number')->label('رقم المحاولة'),
+                            TextEntry::make('status')
+                                ->label('الحالة')
+                                ->badge()
+                                ->color(fn (?string $state): string | array => self::attemptStatusColor($state))
+                                ->formatStateUsing(fn (?string $state): string => self::attemptStatusLabel($state)),
+                            TextEntry::make('attempted_at')->label('وقت المعالجة')->dateTime('Y-m-d h:i A')->placeholder('-'),
+                            TextEntry::make('response_payload_formatted')
+                                ->label('Response Payload')
+                                ->state(fn (MessageAttempt $record): string => self::formatJsonValue($record->response_payload))
+                                ->placeholder('-')
+                                ->fontFamily(FontFamily::Mono)
+                                ->copyable()
+                                ->columnSpanFull(),
+                            TextEntry::make('error_message')->label('رسالة الخطأ')->placeholder('-')->columnSpanFull(),
+                            TextEntry::make('created_at')->label('تاريخ الإنشاء')->dateTime('Y-m-d h:i A')->placeholder('-'),
+                        ])
+                        ->columns(2)
+                        ->columnSpanFull(),
+                ]),
         ]);
     }
 
@@ -150,6 +201,23 @@ class MessageResource extends Resource
                     ->dateTime('Y-m-d h:i A')
                     ->placeholder('-')
                     ->sortable(),
+                TextColumn::make('sent_at')
+                    ->label('وقت الإرسال')
+                    ->dateTime('Y-m-d h:i A')
+                    ->placeholder('-')
+                    ->sortable()
+                    ->toggleable(),
+                TextColumn::make('failed_at')
+                    ->label('وقت الفشل')
+                    ->dateTime('Y-m-d h:i A')
+                    ->placeholder('-')
+                    ->sortable()
+                    ->toggleable(),
+                TextColumn::make('external_message_id')
+                    ->label('رقم الرسالة الخارجي')
+                    ->placeholder('-')
+                    ->searchable()
+                    ->toggleable(),
                 TextColumn::make('created_at')
                     ->label('تاريخ الإنشاء')
                     ->dateTime('Y-m-d h:i A')
@@ -211,6 +279,11 @@ class MessageResource extends Resource
         return Message::typeLabels()[$state] ?? ($state ?: '-');
     }
 
+    protected static function attemptStatusLabel(?string $state): string
+    {
+        return MessageAttempt::statusLabels()[$state] ?? ($state ?: '-');
+    }
+
     protected static function directionColor(?string $state): string | array
     {
         return match ($state) {
@@ -231,12 +304,37 @@ class MessageResource extends Resource
         };
     }
 
-    protected static function formatPayload(mixed $state): string
+    protected static function attemptStatusColor(?string $state): string | array
     {
-        if (blank($state)) {
+        return match ($state) {
+            MessageAttempt::STATUS_PENDING => 'warning',
+            MessageAttempt::STATUS_QUEUED => 'info',
+            MessageAttempt::STATUS_SENT => 'success',
+            MessageAttempt::STATUS_FAILED => 'danger',
+            default => 'gray',
+        };
+    }
+
+    protected static function formatJsonValue(mixed $state): string
+    {
+        if ($state === null || $state === '') {
             return '-';
         }
 
-        return json_encode($state, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) ?: '-';
+        if (is_string($state)) {
+            $decoded = json_decode($state, true);
+
+            if (json_last_error() === JSON_ERROR_NONE) {
+                return json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '-';
+            }
+
+            return $state;
+        }
+
+        if (is_array($state) || is_object($state)) {
+            return json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '-';
+        }
+
+        return (string) $state;
     }
 }
