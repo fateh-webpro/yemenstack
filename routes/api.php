@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\MessageController;
 use App\Http\Controllers\Api\V1\Whatsapp\EngineClaimMessageController;
+use App\Http\Controllers\Api\V1\Whatsapp\EngineMarkMessageFailedController;
 use App\Http\Controllers\Api\V1\Whatsapp\EngineMarkMessageSentController;
 use App\Http\Controllers\Api\V1\Whatsapp\EnginePendingMessageController;
 use App\Http\Controllers\Api\V1\Whatsapp\EngineQueuedMessageController;
@@ -30,5 +31,6 @@ Route::prefix('v1')->middleware('api.credential')->group(function (): void {
     Route::post('/whatsapp/engine/messages/{message}/claim', EngineClaimMessageController::class);
     Route::get('/whatsapp/engine/messages/queued', EngineQueuedMessageController::class);
     Route::post('/whatsapp/engine/messages/{message}/mark-sent', EngineMarkMessageSentController::class);
+    Route::post('/whatsapp/engine/messages/{message}/mark-failed', EngineMarkMessageFailedController::class);
     Route::post('/whatsapp/engine/account/status', EngineWhatsappAccountStatusController::class);
 });

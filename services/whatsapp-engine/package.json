@@ -9,7 +9,8 @@
     "health": "node src/health.js",
     "poll:pending": "node src/pendingMessages.js",
     "process:queued": "node src/queuedMessages.js",
-    "whatsapp:qr": "node src/whatsappSession.js"
+    "whatsapp:qr": "node src/whatsappSession.js",
+    "send:one": "node src/sendOneQueuedMessage.js"
   },
   "dependencies": {
     "qrcode-terminal": "^0.12.0",

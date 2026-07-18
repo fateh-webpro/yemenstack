@@ -39,11 +39,15 @@ const config = {
   accountStatusPath: process.env.ENGINE_ACCOUNT_STATUS_PATH || '/api/v1/whatsapp/engine/account/status',
   claimMessagePathTemplate: process.env.ENGINE_CLAIM_MESSAGE_PATH_TEMPLATE || '/api/v1/whatsapp/engine/messages/:id/claim',
   markSentPathTemplate: process.env.ENGINE_MARK_SENT_PATH_TEMPLATE || '/api/v1/whatsapp/engine/messages/:id/mark-sent',
+  markFailedPathTemplate: process.env.ENGINE_MARK_FAILED_PATH_TEMPLATE || '/api/v1/whatsapp/engine/messages/:id/mark-failed',
   whatsappSessionId: process.env.WHATSAPP_SESSION_ID || 'default',
   whatsappChromePath: process.env.WHATSAPP_CHROME_PATH || '',
   whatsappHeadless: toBoolean(process.env.WHATSAPP_HEADLESS, true),
   whatsappQrTerminalSmall: toBoolean(process.env.WHATSAPP_QR_TERMINAL_SMALL, true),
+  enableRealWhatsappSend: toBoolean(process.env.ENABLE_REAL_WHATSAPP_SEND, false),
+  whatsappTestRecipient: process.env.WHATSAPP_TEST_RECIPIENT || '',
   fetchLimit: clamp(toNumber(process.env.ENGINE_FETCH_LIMIT, 10), 1, 50),
+  whatsappSendLimit: clamp(toNumber(process.env.WHATSAPP_SEND_LIMIT, 1), 1, 1),
 };
 
 const getPublicConfig = () => ({
@@ -56,11 +60,15 @@ const getPublicConfig = () => ({
   accountStatusPath: config.accountStatusPath,
   claimMessagePathTemplate: config.claimMessagePathTemplate,
   markSentPathTemplate: config.markSentPathTemplate,
+  markFailedPathTemplate: config.markFailedPathTemplate,
   whatsappSessionId: config.whatsappSessionId,
   whatsappChromePath: config.whatsappChromePath,
   whatsappHeadless: config.whatsappHeadless,
   whatsappQrTerminalSmall: config.whatsappQrTerminalSmall,
+  enableRealWhatsappSend: config.enableRealWhatsappSend,
+  whatsappTestRecipient: config.whatsappTestRecipient,
   fetchLimit: config.fetchLimit,
+  whatsappSendLimit: config.whatsappSendLimit,
   engineApiTokenMasked: maskToken(config.engineApiToken),
 });
 

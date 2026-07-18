@@ -10,7 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
-class EngineMarkMessageSentController extends Controller
+class EngineMarkMessageFailedController extends Controller
 {
     public function __invoke(Request $request, Message $message): JsonResponse
     {
@@ -21,7 +21,7 @@ class EngineMarkMessageSentController extends Controller
         if (! $credential || ! $credential->hasAbility('messages:send')) {
             return response()->json([
                 'success' => false,
-                'message' => 'This API token is not allowed to mark messages as sent.',
+                'message' => 'This API token is not allowed to mark messages as failed.',
             ], 403);
         }
 
@@ -33,9 +33,9 @@ class EngineMarkMessageSentController extends Controller
         }
 
         $validated = $request->validate([
-            'external_message_id' => ['nullable', 'string', 'max:255'],
+            'error_message' => ['nullable', 'string'],
             'response_payload' => ['nullable', 'array'],
-            'sent_at' => ['nullable', 'date'],
+            'failed_at' => ['nullable', 'date'],
             'mode' => ['nullable', 'string', 'max:50'],
             'provider' => ['nullable', 'string', 'max:100'],
         ]);
@@ -43,11 +43,10 @@ class EngineMarkMessageSentController extends Controller
         $result = DB::transaction(function () use ($message, $client, $validated): ?array {
             $mode = $validated['mode'] ?? 'simulation';
             $provider = $validated['provider'] ?? ($mode === 'simulation' ? 'local-simulator' : 'whatsapp-web.js');
-            $sentAt = filled($validated['sent_at'] ?? null)
-                ? Carbon::parse($validated['sent_at'])
+            $failedAt = filled($validated['failed_at'] ?? null)
+                ? Carbon::parse($validated['failed_at'])
                 : now();
-            $externalMessageId = $validated['external_message_id']
-                ?? sprintf('simulated-%d-%d', $message->id, now()->timestamp);
+            $errorMessage = $validated['error_message'] ?? 'Unknown WhatsApp send failure.';
 
             $affected = Message::query()
                 ->where('id', $message->id)
@@ -56,10 +55,10 @@ class EngineMarkMessageSentController extends Controller
                 ->where('direction', Message::DIRECTION_OUTBOUND)
                 ->where('status', Message::STATUS_QUEUED)
                 ->update([
-                    'status' => Message::STATUS_SENT,
-                    'sent_at' => $sentAt,
-                    'external_message_id' => $externalMessageId,
-                    'updated_at' => $sentAt,
+                    'status' => Message::STATUS_FAILED,
+                    'failed_at' => $failedAt,
+                    'error_message' => $errorMessage,
+                    'updated_at' => $failedAt,
                 ]);
 
             if ($affected === 0) {
@@ -69,11 +68,8 @@ class EngineMarkMessageSentController extends Controller
             $responsePayload = $validated['response_payload'] ?? [
                 'mode' => $mode,
                 'provider' => $provider,
-                'external_message_id' => $externalMessageId,
-                'sent_at' => $sentAt->toISOString(),
-                'note' => $mode === 'simulation'
-                    ? 'No real WhatsApp message was sent.'
-                    : 'Message marked as sent by WhatsApp engine.',
+                'error_message' => $errorMessage,
+                'failed_at' => $failedAt->toISOString(),
             ];
 
             $attempt = MessageAttempt::query()
@@ -85,10 +81,10 @@ class EngineMarkMessageSentController extends Controller
 
             if ($attempt && ($attempt->status === MessageAttempt::STATUS_QUEUED)) {
                 $attempt->forceFill([
-                    'status' => MessageAttempt::STATUS_SENT,
+                    'status' => MessageAttempt::STATUS_FAILED,
                     'response_payload' => $responsePayload,
-                    'error_message' => null,
-                    'attempted_at' => $attempt->attempted_at ?? $sentAt,
+                    'error_message' => $errorMessage,
+                    'attempted_at' => $attempt->attempted_at ?? $failedAt,
                 ])->save();
             } else {
                 $attemptNumber = MessageAttempt::query()
@@ -99,10 +95,10 @@ class EngineMarkMessageSentController extends Controller
                 $attempt = MessageAttempt::query()->create([
                     'message_id' => $message->id,
                     'attempt_number' => $attemptNumber,
-                    'status' => MessageAttempt::STATUS_SENT,
+                    'status' => MessageAttempt::STATUS_FAILED,
                     'response_payload' => $responsePayload,
-                    'error_message' => null,
-                    'attempted_at' => $sentAt,
+                    'error_message' => $errorMessage,
+                    'attempted_at' => $failedAt,
                 ]);
             }
 
@@ -123,12 +119,11 @@ class EngineMarkMessageSentController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Message marked as sent.',
+            'message' => 'Message marked as failed.',
             'data' => [
                 'message_id' => $result['message']->id,
                 'status' => $result['message']->status,
-                'external_message_id' => $result['message']->external_message_id,
-                'sent_at' => $result['message']->sent_at?->toISOString(),
+                'failed_at' => $result['message']->failed_at?->toISOString(),
                 'attempt_id' => $result['attempt']->id,
                 'attempt_status' => $result['attempt']->status,
             ],

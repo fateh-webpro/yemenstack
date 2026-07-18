@@ -55,6 +55,12 @@ const buildMarkSentUrl = (messageId) => {
   return new URL(path, baseUrl);
 };
 
+const buildMarkFailedUrl = (messageId) => {
+  const baseUrl = new URL(config.laravelBaseUrl);
+  const path = config.markFailedPathTemplate.replace(':id', String(messageId));
+  return new URL(path, baseUrl);
+};
+
 const fetchPendingMessages = async (limit = config.fetchLimit) => {
   ensureToken();
   const response = await fetch(buildPendingMessagesUrl(limit), {
@@ -105,8 +111,9 @@ const claimMessage = async (messageId) => {
   return payload;
 };
 
-const markMessageSent = async (messageId) => {
+const markMessageSent = async (messageId, extra = {}) => {
   ensureToken();
+  const body = Object.keys(extra).length > 0 ? extra : { mode: 'simulation' };
   const response = await fetch(buildMarkSentUrl(messageId), {
     method: 'POST',
     headers: {
@@ -114,7 +121,25 @@ const markMessageSent = async (messageId) => {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${config.engineApiToken}`,
     },
-    body: JSON.stringify({ mode: 'simulation' }),
+    body: JSON.stringify(body),
+  });
+  const payload = await parseJson(response);
+  if (!response.ok) {
+    throwHttpError(response, payload);
+  }
+  return payload;
+};
+
+const markMessageFailed = async (messageId, extra = {}) => {
+  ensureToken();
+  const response = await fetch(buildMarkFailedUrl(messageId), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.engineApiToken}`,
+    },
+    body: JSON.stringify(extra),
   });
   const payload = await parseJson(response);
   if (!response.ok) {
@@ -147,9 +172,11 @@ module.exports = {
   buildAccountStatusUrl,
   buildClaimMessageUrl,
   buildMarkSentUrl,
+  buildMarkFailedUrl,
   fetchPendingMessages,
   fetchQueuedMessages,
   claimMessage,
   markMessageSent,
+  markMessageFailed,
   updateWhatsappAccountStatus,
 };
