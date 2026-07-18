@@ -6,11 +6,13 @@ use App\Filament\Resources\Messages\Pages\ListMessages;
 use App\Models\Message;
 use App\Models\MessageAttempt;
 use BackedEnum;
+use Filament\Actions\Action;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
@@ -20,6 +22,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 use UnitEnum;
 
 class MessageResource extends Resource
@@ -232,6 +235,50 @@ class MessageResource extends Resource
                     ->options(Message::statusLabels()),
             ])
             ->recordActions([
+                Action::make('retry')
+                    ->label('إعادة الإرسال')
+                    ->icon(Heroicon::OutlinedArrowPath)
+                    ->color('warning')
+                    ->visible(fn (Message $record): bool => $record->status === Message::STATUS_FAILED)
+                    ->requiresConfirmation()
+                    ->modalDescription('هل تريد إعادة إرسال هذه الرسالة؟')
+                    ->action(function (Message $record): void {
+                        $returnedToPending = DB::transaction(function () use ($record): bool {
+                            /** @var Message|null $message */
+                            $message = Message::query()
+                                ->whereKey($record->getKey())
+                                ->lockForUpdate()
+                                ->first();
+
+                            if (! $message || $message->status !== Message::STATUS_FAILED) {
+                                return false;
+                            }
+
+                            $message->forceFill([
+                                'status' => Message::STATUS_PENDING,
+                                'failed_at' => null,
+                                'error_message' => null,
+                                'sent_at' => null,
+                                'external_message_id' => null,
+                            ])->save();
+
+                            return true;
+                        });
+
+                        if (! $returnedToPending) {
+                            Notification::make()
+                                ->title('لا يمكن إعادة إرسال هذه الرسالة لأن حالتها تغيرت.')
+                                ->warning()
+                                ->send();
+
+                            return;
+                        }
+
+                        Notification::make()
+                            ->title('تمت إعادة الرسالة إلى قائمة الانتظار بنجاح.')
+                            ->success()
+                            ->send();
+                    }),
                 ViewAction::make()->slideOver(),
             ])
             ->defaultSort('created_at', 'desc');
