@@ -81,3 +81,21 @@ Behavior:
 - On success it calls `mark-sent` with real provider payload.
 - On failure it calls `mark-failed` with the error details.
 - The script does not run automatically from the engine loop.
+## Background Engine
+
+The `start` and `dev` scripts run `src/index.js` as the background WhatsApp Gateway engine.
+
+Behavior:
+- The engine starts the WhatsApp client with LocalAuth.
+- The engine prints QR in the terminal when authentication is required.
+- Message processing does not start until `WhatsApp client is ready`.
+- Each cycle claims `pending` messages first, then reads `queued` messages.
+- Real WhatsApp send is disabled by default.
+- Real send works only when `ENABLE_REAL_WHATSAPP_SEND=true`.
+- `WHATSAPP_SEND_LIMIT` is intentionally limited for gradual rollout.
+- If `WHATSAPP_TEST_RECIPIENT` is set, the engine sends only to that recipient and skips the others.
+
+Recommended usage:
+- `npm run whatsapp:qr` for QR and session setup only.
+- `npm run send:one` for one manual real-send test.
+- `npm start` for the long-running background engine.
