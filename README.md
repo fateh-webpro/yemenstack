@@ -1,59 +1,116 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Yemen Stack
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+## تعريف مختصر
 
-## About Laravel
+Yemen Stack منصة قابلة للتوسع لتقديم خدمات تقنية متعددة، وتُعد خدمة WhatsApp Gateway أول خدمة تشغيلية ضمنها.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## الوضع الحالي
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+المشروع في مرحلة MVP متقدمة.
+خدمة WhatsApp Gateway تعمل حاليًا بحساب تجريبي واحد على VPS، مع وجود لوحة إدارة، وLaravel API، ومحرك Node.js مستقل للإرسال وإدارة الجلسة.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## التقنيات الأساسية
 
-## Learning Laravel
+- Laravel
+- Filament
+- MySQL
+- Node.js
+- whatsapp-web.js
+- PM2
+- Nginx
+- PHP-FPM
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+## الوحدات الحالية
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+- الإدارة عبر Filament
+- العملاء
+- حسابات واتساب
+- مفاتيح API
+- الرسائل
+- محاولات الإرسال
+- سجلات Webhook
+- محرك WhatsApp الخلفي
 
-## Laravel Sponsors
+## تدفق الرسائل
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+`pending -> queued -> sent / failed`
 
-### Premium Partners
+## هيكل المشروع المختصر
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+- `app`
+- `routes`
+- `database`
+- `services/whatsapp-engine`
 
-## Contributing
+## ملاحظات معمارية
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+- Yemen Stack هي المنصة الأساسية.
+- WhatsApp Gateway خدمة ضمن المنصة وليست هوية المشروع بالكامل.
+- Laravel يدير قاعدة البيانات ولوحة الإدارة وواجهات API.
+- محرك `services/whatsapp-engine` يدير جلسة WhatsApp Web والـ QR والـ polling والإرسال الخلفي.
+- المحرك الحالي يدير جلسة واحدة فقط في مرحلة MVP.
+- دعم تعدد العملاء والجلسات والاشتراكات لم يُنفذ بعد.
 
-## Code of Conduct
+## إعداد البيئة
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+تُستخدم متغيرات البيئة التالية بحسب الجزء المشغل:
 
-## Security Vulnerabilities
+- `APP_NAME`
+- `APP_ENV`
+- `APP_URL`
+- `DB_CONNECTION`
+- `DB_HOST`
+- `DB_PORT`
+- `DB_DATABASE`
+- `DB_USERNAME`
+- `DB_PASSWORD`
+- `ENGINE_API_TOKEN`
+- `WHATSAPP_SESSION_ID`
+- `WHATSAPP_CHROME_PATH`
+- `ENABLE_REAL_WHATSAPP_SEND`
+- `WHATSAPP_TEST_RECIPIENT`
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+لا تُحفظ أي قيم حقيقية لهذه المتغيرات داخل Git.
 
-## License
+## تنبيه أمني
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+- لا تُضمَّن أي Tokens أو Secrets داخل Git.
+- لا تتم مشاركة ملف `.env`.
+- لا يتم حذف `.wwebjs_auth` دون سبب فني واضح ومخطط.
+- لا تُستخدم بيانات الإنتاج في الاختبارات المحلية.
+- لا يتم تشغيل أكثر من محرك على نفس جلسة WhatsApp.
+
+## التشغيل المحلي
+
+أوامر التشغيل المحلية الآمنة تشمل:
+
+- `php artisan serve`
+- `php artisan test`
+- `npm run dev`
+- `cd services/whatsapp-engine`
+- `npm run health`
+- `npm run whatsapp:qr`
+
+الأمر `npm start` داخل `services/whatsapp-engine` يشغل المحرك الخلفي إذا كانت متغيرات البيئة المطلوبة مضبوطة.
+لا ينبغي اعتباره أمر اختبار آمن ما لم تكن البيئة معروفة ومقصودة.
+
+## تشغيل VPS
+
+التشغيل على VPS يعتمد على:
+
+- `services/whatsapp-engine/ecosystem.config.cjs`
+- `pm2 start ecosystem.config.cjs`
+- `pm2 save`
+- `pm2 startup`
+
+يجب ضبط متغيرات البيئة على السيرفر يدويًا، وعدم حفظ أي Token حقيقي داخل ملف PM2 المتتبع في Git.
+
+## الاختبارات
+
+التغطية الحالية محدودة.
+لا توجد بعد اختبارات شاملة تغطي دورة الرسائل الكاملة أو سلوك محرك Node.js أو سيناريوهات الاستعادة والأمان.
+
+## حالة المشروع
+
+المشروع ما زال قيد التطوير.
+الوظائف الأساسية لخدمة WhatsApp Gateway موجودة وتعمل ضمن MVP الحالي، لكن نظام الاشتراكات وتعدد العملاء والجلسات وإدارة القنوات المتعددة لم يكتمل بعد.
