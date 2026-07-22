@@ -48,6 +48,9 @@ const config = {
   whatsappTestRecipient: process.env.WHATSAPP_TEST_RECIPIENT || '',
   fetchLimit: clamp(toNumber(process.env.ENGINE_FETCH_LIMIT, 10), 1, 50),
   whatsappSendLimit: clamp(toNumber(process.env.WHATSAPP_SEND_LIMIT, 1), 1, 1),
+  whatsappRestartDelayMs: clamp(toNumber(process.env.WHATSAPP_RESTART_DELAY_MS, 3000), 1000, 60000),
+  whatsappRestartTimeoutMs: clamp(toNumber(process.env.WHATSAPP_RESTART_TIMEOUT_MS, 60000), 10000, 180000),
+  whatsappMaxRestartAttempts: clamp(toNumber(process.env.WHATSAPP_MAX_RESTART_ATTEMPTS, 3), 1, 10),
 };
 
 const getPublicConfig = () => ({
@@ -69,6 +72,9 @@ const getPublicConfig = () => ({
   whatsappTestRecipient: config.whatsappTestRecipient,
   fetchLimit: config.fetchLimit,
   whatsappSendLimit: config.whatsappSendLimit,
+  whatsappRestartDelayMs: config.whatsappRestartDelayMs,
+  whatsappRestartTimeoutMs: config.whatsappRestartTimeoutMs,
+  whatsappMaxRestartAttempts: config.whatsappMaxRestartAttempts,
   engineApiTokenMasked: maskToken(config.engineApiToken),
 });
 
