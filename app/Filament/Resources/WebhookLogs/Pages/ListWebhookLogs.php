@@ -3,7 +3,6 @@
 namespace App\Filament\Resources\WebhookLogs\Pages;
 
 use App\Filament\Resources\WebhookLogs\WebhookLogResource;
-use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListWebhookLogs extends ListRecords
@@ -12,8 +11,6 @@ class ListWebhookLogs extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [
-            CreateAction::make(),
-        ];
+        return [];
     }
 }
