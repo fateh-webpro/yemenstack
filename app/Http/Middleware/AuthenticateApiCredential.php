@@ -28,6 +28,10 @@ class AuthenticateApiCredential
             return $this->unauthorized();
         }
 
+        $credential->forceFill([
+            'last_used_at' => now(),
+        ])->saveQuietly();
+
         $request->attributes->set('api_credential', $credential);
         $request->attributes->set('client', $credential->client);
         $request->attributes->set('whatsapp_account', $credential->whatsappAccount);

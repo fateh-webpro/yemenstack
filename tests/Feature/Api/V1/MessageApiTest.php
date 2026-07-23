@@ -34,6 +34,8 @@ class MessageApiTest extends TestCase
 
     public function test_messages_endpoint_rejects_requests_with_invalid_token(): void
     {
+        [, $credential] = $this->createCredential();
+
         $response = $this->withToken('yswg_invalid_token')
             ->postJson('/api/v1/messages', [
                 'recipient' => '967777000000',
@@ -47,12 +49,13 @@ class MessageApiTest extends TestCase
                 'message' => 'Invalid API token.',
             ]);
 
+        $this->assertNull($credential->fresh()->last_used_at);
         $this->assertDatabaseCount(Message::class, 0);
     }
 
     public function test_messages_endpoint_rejects_inactive_token(): void
     {
-        [$plainToken] = $this->createCredential([
+        [$plainToken, $credential] = $this->createCredential([
             'is_active' => false,
         ]);
 
@@ -64,12 +67,13 @@ class MessageApiTest extends TestCase
 
         $response->assertUnauthorized();
 
+        $this->assertNull($credential->fresh()->last_used_at);
         $this->assertDatabaseCount(Message::class, 0);
     }
 
     public function test_messages_endpoint_rejects_expired_token(): void
     {
-        [$plainToken] = $this->createCredential([
+        [$plainToken, $credential] = $this->createCredential([
             'expires_at' => Carbon::yesterday()->toDateString(),
         ]);
 
@@ -81,12 +85,17 @@ class MessageApiTest extends TestCase
 
         $response->assertUnauthorized();
 
+        $this->assertNull($credential->fresh()->last_used_at);
         $this->assertDatabaseCount(Message::class, 0);
     }
 
     public function test_messages_endpoint_rejects_token_without_messages_send_ability(): void
     {
-        [$plainToken] = $this->createCredential([
+        $usageTime = Carbon::parse('2026-07-23 10:00:00');
+
+        $this->travelTo($usageTime);
+
+        [$plainToken, $credential] = $this->createCredential([
             'abilities' => ['messages:read'],
         ]);
 
@@ -103,12 +112,14 @@ class MessageApiTest extends TestCase
                 'message' => 'This API token is not allowed to send messages.',
             ]);
 
+        $this->assertNotNull($credential->fresh()->last_used_at);
+        $this->assertTrue($credential->fresh()->last_used_at->equalTo($usageTime));
         $this->assertDatabaseCount(Message::class, 0);
     }
 
     public function test_messages_endpoint_rejects_token_when_client_is_inactive(): void
     {
-        [$plainToken] = $this->createCredential([
+        [$plainToken, $credential] = $this->createCredential([
             'client_active' => false,
         ]);
 
@@ -120,12 +131,13 @@ class MessageApiTest extends TestCase
 
         $response->assertUnauthorized();
 
+        $this->assertNull($credential->fresh()->last_used_at);
         $this->assertDatabaseCount(Message::class, 0);
     }
 
     public function test_messages_endpoint_rejects_token_when_whatsapp_account_is_inactive(): void
     {
-        [$plainToken] = $this->createCredential([
+        [$plainToken, $credential] = $this->createCredential([
             'whatsapp_account_active' => false,
         ]);
 
@@ -137,6 +149,7 @@ class MessageApiTest extends TestCase
 
         $response->assertUnauthorized();
 
+        $this->assertNull($credential->fresh()->last_used_at);
         $this->assertDatabaseCount(Message::class, 0);
     }
 
@@ -173,6 +186,10 @@ class MessageApiTest extends TestCase
 
     public function test_messages_endpoint_creates_a_pending_message_for_the_token_client_and_account(): void
     {
+        $usageTime = Carbon::parse('2026-07-23 11:00:00');
+
+        $this->travelTo($usageTime);
+
         [$plainToken, $credential, $client, $whatsappAccount] = $this->createCredential();
 
         $scheduledAt = Carbon::now()->addMinutes(15)->toISOString();
@@ -223,6 +240,8 @@ class MessageApiTest extends TestCase
         $this->assertSame(['source' => 'feature-test'], $message->payload);
         $this->assertSame($credential->client_id, $message->client_id);
         $this->assertSame($credential->whatsapp_account_id, $message->whatsapp_account_id);
+        $this->assertNotNull($credential->fresh()->last_used_at);
+        $this->assertTrue($credential->fresh()->last_used_at->equalTo($usageTime));
     }
 
     public function test_messages_endpoint_isolated_by_api_credential_binding_even_if_payload_contains_other_ids(): void
@@ -266,6 +285,10 @@ class MessageApiTest extends TestCase
 
     public function test_me_endpoint_returns_bound_client_and_account_without_sensitive_fields(): void
     {
+        $usageTime = Carbon::parse('2026-07-23 12:00:00');
+
+        $this->travelTo($usageTime);
+
         [$plainToken, $credential, $client, $whatsappAccount] = $this->createCredential([
             'abilities' => ['messages:send', 'messages:read'],
         ]);
@@ -282,10 +305,17 @@ class MessageApiTest extends TestCase
                 'expires_at' => $credential->expires_at?->toDateString(),
             ])
             ->assertJsonMissingPath('token_hash');
+
+        $this->assertNotNull($credential->fresh()->last_used_at);
+        $this->assertTrue($credential->fresh()->last_used_at->equalTo($usageTime));
     }
 
     public function test_me_endpoint_rejects_invalid_token(): void
     {
+        [, $credential] = $this->createCredential([
+            'abilities' => ['messages:send', 'messages:read'],
+        ]);
+
         $response = $this->withToken('yswg_invalid_token')->getJson('/api/v1/me');
 
         $response
@@ -294,6 +324,8 @@ class MessageApiTest extends TestCase
                 'success' => false,
                 'message' => 'Invalid API token.',
             ]);
+
+        $this->assertNull($credential->fresh()->last_used_at);
     }
 
     public function test_api_credential_is_usable_only_when_whatsapp_account_belongs_to_same_client(): void
@@ -323,7 +355,7 @@ class MessageApiTest extends TestCase
             'is_active' => true,
         ]);
 
-        [$plainToken] = $this->createCredential([
+        [$plainToken, $credential] = $this->createCredential([
             'account_client_id' => $otherClient->id,
         ]);
 
@@ -340,6 +372,7 @@ class MessageApiTest extends TestCase
                 'message' => 'Invalid API token.',
             ]);
 
+        $this->assertNull($credential->fresh()->last_used_at);
         $this->assertDatabaseCount(Message::class, 0);
     }
 
@@ -351,7 +384,7 @@ class MessageApiTest extends TestCase
             'is_active' => true,
         ]);
 
-        [$plainToken] = $this->createCredential([
+        [$plainToken, $credential] = $this->createCredential([
             'account_client_id' => $otherClient->id,
         ]);
 
@@ -364,6 +397,44 @@ class MessageApiTest extends TestCase
                 'success' => false,
                 'message' => 'Invalid API token.',
             ]);
+
+        $this->assertNull($credential->fresh()->last_used_at);
+    }
+
+    public function test_last_used_at_updates_on_multiple_valid_requests(): void
+    {
+        $initialTime = Carbon::parse('2026-07-23 13:00:00');
+        $nextTime = Carbon::parse('2026-07-23 13:05:00');
+
+        $this->travelTo($initialTime);
+
+        [$plainToken, $credential] = $this->createCredential([
+            'abilities' => ['messages:send', 'messages:read'],
+        ]);
+
+        $this->withToken($plainToken)
+            ->getJson('/api/v1/me')
+            ->assertOk();
+
+        $firstUsage = $credential->fresh()->last_used_at;
+
+        $this->assertNotNull($firstUsage);
+        $this->assertTrue($firstUsage->equalTo($initialTime));
+
+        $this->travelTo($nextTime);
+
+        $this->withToken($plainToken)
+            ->postJson('/api/v1/messages', [
+                'recipient' => '967777000123',
+                'body' => 'Second usage test',
+            ])
+            ->assertCreated();
+
+        $secondUsage = $credential->fresh()->last_used_at;
+
+        $this->assertNotNull($secondUsage);
+        $this->assertTrue($secondUsage->equalTo($nextTime));
+        $this->assertTrue($secondUsage->greaterThanOrEqualTo($firstUsage));
     }
 
     /**

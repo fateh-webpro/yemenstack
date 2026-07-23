@@ -29,7 +29,11 @@ class EngineMessageLifecycleTest extends TestCase
 
     public function test_pending_endpoint_requires_messages_read_ability(): void
     {
-        [$plainToken] = $this->createCredential([
+        $usageTime = Carbon::parse('2026-07-23 14:00:00');
+
+        $this->travelTo($usageTime);
+
+        [$plainToken, $credential] = $this->createCredential([
             'abilities' => ['messages:send'],
         ]);
 
@@ -42,13 +46,16 @@ class EngineMessageLifecycleTest extends TestCase
                 'success' => false,
                 'message' => 'This API token is not allowed to read messages.',
             ]);
+
+        $this->assertNotNull($credential->fresh()->last_used_at);
+        $this->assertTrue($credential->fresh()->last_used_at->equalTo($usageTime));
     }
 
     public function test_pending_endpoint_rejects_inconsistent_token(): void
     {
         $foreignClient = $this->createClient('Foreign Pending Client');
 
-        [$plainToken, , $credentialClient, $credentialAccount] = $this->createCredential([
+        [$plainToken, $credential, $credentialClient, $credentialAccount] = $this->createCredential([
             'abilities' => ['messages:read', 'messages:send'],
             'account_client_id' => $foreignClient->id,
         ]);
@@ -69,8 +76,32 @@ class EngineMessageLifecycleTest extends TestCase
                 'message' => 'Invalid API token.',
             ]);
 
+        $this->assertNull($credential->fresh()->last_used_at);
         $this->assertSame(Message::STATUS_PENDING, $message->fresh()->status);
         $this->assertDatabaseCount(MessageAttempt::class, 0);
+    }
+
+    public function test_pending_endpoint_updates_last_used_at_for_valid_token(): void
+    {
+        $usageTime = Carbon::parse('2026-07-23 14:10:00');
+
+        $this->travelTo($usageTime);
+
+        [$plainToken, $credential, $client, $account] = $this->createCredential([
+            'abilities' => ['messages:read', 'messages:send'],
+        ]);
+
+        $this->createMessage($client, $account, [
+            'status' => Message::STATUS_PENDING,
+            'direction' => Message::DIRECTION_OUTBOUND,
+        ]);
+
+        $this->withToken($plainToken)
+            ->getJson('/api/v1/whatsapp/engine/messages/pending')
+            ->assertOk();
+
+        $this->assertNotNull($credential->fresh()->last_used_at);
+        $this->assertTrue($credential->fresh()->last_used_at->equalTo($usageTime));
     }
 
     public function test_pending_endpoint_returns_only_due_outbound_pending_messages_for_bound_account(): void
