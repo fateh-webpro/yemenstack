@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\MessageController;
 use App\Http\Controllers\Api\V1\Whatsapp\EngineClaimMessageController;
+use App\Http\Controllers\Api\V1\Whatsapp\EngineHealthController;
 use App\Http\Controllers\Api\V1\Whatsapp\EngineMarkMessageFailedController;
 use App\Http\Controllers\Api\V1\Whatsapp\EngineMarkMessageSentController;
 use App\Http\Controllers\Api\V1\Whatsapp\EnginePendingMessageController;
@@ -10,6 +11,10 @@ use App\Http\Controllers\Api\V1\Whatsapp\EngineWhatsappAccountStatusController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+
+Route::prefix('v1/whatsapp/engine')->middleware('whatsapp.engine')->group(function (): void {
+    Route::get('/health', EngineHealthController::class);
+});
 
 Route::prefix('v1')->middleware('api.credential')->group(function (): void {
     Route::get('/me', function (Request $request): JsonResponse {

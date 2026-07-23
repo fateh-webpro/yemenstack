@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    'whatsapp_engine' => [
+        'internal_token' => env('WHATSAPP_ENGINE_INTERNAL_TOKEN'),
+    ],
+
 ];

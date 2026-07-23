@@ -15,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'site.maintenance' => \App\Http\Middleware\CheckMaintenanceMode::class,
             'api.credential' => \App\Http\Middleware\AuthenticateApiCredential::class,
+            'whatsapp.engine' => \App\Http\Middleware\AuthenticateWhatsappEngine::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
