@@ -44,6 +44,35 @@ class EngineMessageLifecycleTest extends TestCase
             ]);
     }
 
+    public function test_pending_endpoint_rejects_inconsistent_token(): void
+    {
+        $foreignClient = $this->createClient('Foreign Pending Client');
+
+        [$plainToken, , $credentialClient, $credentialAccount] = $this->createCredential([
+            'abilities' => ['messages:read', 'messages:send'],
+            'account_client_id' => $foreignClient->id,
+        ]);
+
+        $message = $this->createMessage($credentialClient, $credentialAccount, [
+            'status' => Message::STATUS_PENDING,
+            'direction' => Message::DIRECTION_OUTBOUND,
+            'recipient' => '967700000010',
+        ]);
+
+        $response = $this->withToken($plainToken)
+            ->getJson('/api/v1/whatsapp/engine/messages/pending');
+
+        $response
+            ->assertUnauthorized()
+            ->assertJson([
+                'success' => false,
+                'message' => 'Invalid API token.',
+            ]);
+
+        $this->assertSame(Message::STATUS_PENDING, $message->fresh()->status);
+        $this->assertDatabaseCount(MessageAttempt::class, 0);
+    }
+
     public function test_pending_endpoint_returns_only_due_outbound_pending_messages_for_bound_account(): void
     {
         [$plainToken, , $client, $account] = $this->createCredential([

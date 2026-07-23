@@ -296,6 +296,76 @@ class MessageApiTest extends TestCase
             ]);
     }
 
+    public function test_api_credential_is_usable_only_when_whatsapp_account_belongs_to_same_client(): void
+    {
+        [, $validCredential] = $this->createCredential();
+
+        $this->assertTrue($validCredential->fresh()->isUsable());
+
+        $otherClient = Client::query()->create([
+            'name' => 'Foreign Client',
+            'slug' => 'foreign-client',
+            'is_active' => true,
+        ]);
+
+        [, $invalidCredential] = $this->createCredential([
+            'account_client_id' => $otherClient->id,
+        ]);
+
+        $this->assertFalse($invalidCredential->fresh()->isUsable());
+    }
+
+    public function test_messages_endpoint_rejects_inconsistent_token(): void
+    {
+        $otherClient = Client::query()->create([
+            'name' => 'Foreign Message Client',
+            'slug' => 'foreign-message-client',
+            'is_active' => true,
+        ]);
+
+        [$plainToken] = $this->createCredential([
+            'account_client_id' => $otherClient->id,
+        ]);
+
+        $response = $this->withToken($plainToken)
+            ->postJson('/api/v1/messages', [
+                'recipient' => '967777000000',
+                'body' => 'Test message',
+            ]);
+
+        $response
+            ->assertUnauthorized()
+            ->assertJson([
+                'success' => false,
+                'message' => 'Invalid API token.',
+            ]);
+
+        $this->assertDatabaseCount(Message::class, 0);
+    }
+
+    public function test_me_endpoint_rejects_inconsistent_token(): void
+    {
+        $otherClient = Client::query()->create([
+            'name' => 'Foreign Me Client',
+            'slug' => 'foreign-me-client',
+            'is_active' => true,
+        ]);
+
+        [$plainToken] = $this->createCredential([
+            'account_client_id' => $otherClient->id,
+        ]);
+
+        $response = $this->withToken($plainToken)
+            ->getJson('/api/v1/me');
+
+        $response
+            ->assertUnauthorized()
+            ->assertJson([
+                'success' => false,
+                'message' => 'Invalid API token.',
+            ]);
+    }
+
     /**
      * @return array{0:string,1:ApiCredential,2:Client,3:WhatsappAccount}
      */

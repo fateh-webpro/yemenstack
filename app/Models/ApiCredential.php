@@ -73,11 +73,17 @@ class ApiCredential extends Model
 
     public function isUsable(): bool
     {
+        $this->loadMissing(['client', 'whatsappAccount']);
+
+        $client = $this->client;
+        $whatsappAccount = $this->whatsappAccount;
+
         return $this->is_active
             && filled($this->expires_at)
             && $this->expires_at->toDateString() >= today()->toDateString()
-            && ($this->client?->is_active === true)
-            && ($this->whatsappAccount?->is_active === true);
+            && ($client?->is_active === true)
+            && ($whatsappAccount?->is_active === true)
+            && ((int) $whatsappAccount->client_id === (int) $this->client_id);
     }
 
     public static function abilityOptions(): array
