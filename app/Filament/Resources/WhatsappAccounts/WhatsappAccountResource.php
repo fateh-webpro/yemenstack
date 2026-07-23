@@ -5,17 +5,21 @@ namespace App\Filament\Resources\WhatsappAccounts;
 use App\Filament\Resources\WhatsappAccounts\Pages\ListWhatsappAccounts;
 use App\Filament\Resources\WhatsappAccounts\Pages\ViewWhatsappAccount;
 use App\Models\WhatsappAccount;
+use App\Models\WhatsappPairingToken;
 use BackedEnum;
+use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
@@ -24,6 +28,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\Auth;
 use UnitEnum;
 
 class WhatsappAccountResource extends Resource
@@ -70,12 +75,10 @@ class WhatsappAccountResource extends Resource
                     ->required()
                     ->tel()
                     ->maxLength(255),
-                TextInput::make('session_name')
+                Placeholder::make('session_name_preview')
                     ->label('اسم الجلسة')
-                    ->helperText('اسم فني للجلسة، يفضل أن يكون بالإنجليزية وبدون مسافات، مثال: internal_test_01')
-                    ->required()
-                    ->maxLength(255)
-                    ->unique(ignoreRecord: true),
+                    ->content(fn (?WhatsappAccount $record): string => $record?->session_name
+                        ?? 'سيتم توليده تلقائيًا عند إنشاء الحساب، ولا يمكن تعديله يدويًا.'),
                 Select::make('status')
                     ->label('الحالة')
                     ->options(WhatsappAccount::statusLabels())
@@ -162,6 +165,8 @@ class WhatsappAccountResource extends Resource
                 TernaryFilter::make('is_active')->label('نشط'),
             ])
             ->recordActions([
+                self::generatePairingTokenAction(),
+                self::revokePairingTokenAction(),
                 ViewAction::make(),
                 EditAction::make(),
             ])
@@ -189,5 +194,58 @@ class WhatsappAccountResource extends Resource
     protected static function statusLabel(?string $state): string
     {
         return WhatsappAccount::statusLabels()[$state] ?? ($state ?: '-');
+    }
+
+    protected static function generatePairingTokenAction(): Action
+    {
+        return Action::make('generate_pairing_token')
+            ->label('توليد رمز الربط')
+            ->icon(Heroicon::OutlinedKey)
+            ->color('success')
+            ->visible(fn (WhatsappAccount $record): bool => $record->is_active && (bool) $record->client?->is_active)
+            ->schema([
+                TextInput::make('expires_in_minutes')
+                    ->label('مدة الصلاحية بالدقائق')
+                    ->numeric()
+                    ->minValue(5)
+                    ->maxValue(1440)
+                    ->default(30)
+                    ->required(),
+            ])
+            ->action(function (WhatsappAccount $record, array $data): void {
+                [$plainToken, $pairingToken] = WhatsappPairingToken::issueForWhatsappAccount(
+                    $record,
+                    now()->addMinutes((int) $data['expires_in_minutes']),
+                    Auth::id(),
+                    ['source' => 'filament']
+                );
+
+                Notification::make()
+                    ->success()
+                    ->persistent()
+                    ->title('تم توليد رمز الربط')
+                    ->body("انسخ هذا الرمز الآن، ولن يظهر مرة أخرى:\n{$plainToken}\n\nينتهي في: {$pairingToken->expires_at?->format('Y-m-d H:i:s')}")
+                    ->send();
+            });
+    }
+
+    protected static function revokePairingTokenAction(): Action
+    {
+        return Action::make('revoke_pairing_token')
+            ->label('إلغاء رمز الربط')
+            ->icon(Heroicon::OutlinedNoSymbol)
+            ->color('danger')
+            ->visible(fn (WhatsappAccount $record): bool => $record->pairingTokens()->usable()->exists())
+            ->requiresConfirmation()
+            ->modalDescription('سيتم إلغاء أي رمز ربط صالح لهذا الحساب دون حذف السجل من قاعدة البيانات.')
+            ->action(function (WhatsappAccount $record): void {
+                $revokedCount = WhatsappPairingToken::revokeUsableForWhatsappAccount($record);
+
+                Notification::make()
+                    ->success()
+                    ->title('تم إلغاء رمز الربط')
+                    ->body($revokedCount > 0 ? 'تم إلغاء الرموز الصالحة الحالية لهذا الحساب.' : 'لا يوجد رمز صالح لإلغائه.')
+                    ->send();
+            });
     }
 }

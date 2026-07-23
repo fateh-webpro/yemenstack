@@ -37,6 +37,15 @@ class WhatsappAccount extends Model
         'is_active' => 'boolean',
     ];
 
+    protected static function booted(): void
+    {
+        static::creating(function (self $whatsappAccount): void {
+            if (blank($whatsappAccount->session_name)) {
+                $whatsappAccount->session_name = self::generateSessionName();
+            }
+        });
+    }
+
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('is_active', true);
@@ -59,6 +68,15 @@ class WhatsappAccount extends Model
         ];
     }
 
+    public static function generateSessionName(): string
+    {
+        do {
+            $sessionName = 'wa_' . bin2hex(random_bytes(12));
+        } while (self::query()->where('session_name', $sessionName)->exists());
+
+        return $sessionName;
+    }
+
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
@@ -67,6 +85,11 @@ class WhatsappAccount extends Model
     public function apiCredentials(): HasMany
     {
         return $this->hasMany(ApiCredential::class);
+    }
+
+    public function pairingTokens(): HasMany
+    {
+        return $this->hasMany(WhatsappPairingToken::class);
     }
 
     public function messages(): HasMany
