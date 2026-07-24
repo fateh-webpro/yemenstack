@@ -1,7 +1,7 @@
 const path = require('path');
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
-const { config, getPublicConfig } = require('./config');
+const { config, getPublicConfig, parseMultiSessionAccountIds } = require('./config');
 const logger = require('./logger');
 const { pollPendingMessages } = require('./pendingMessages');
 const {
@@ -629,15 +629,63 @@ const shutdown = async (signal) => {
   process.exit(0);
 };
 
-const startLegacyRuntime = async () => {
-  if (!config.engineApiToken) {
-    logger.warn('ENGINE_API_TOKEN is not configured; Yemen Stack WhatsApp engine will not start.', {
-      service: 'whatsapp-gateway',
-      status: 'skipped',
-    });
+let isRuntimeShuttingDown = false;
+let runtimeShutdownPromise = null;
 
-    return;
+const validateLegacyRuntimeConfig = (runtimeConfig = config) => {
+  if (!runtimeConfig.laravelBaseUrl) {
+    const error = new Error('LARAVEL_BASE_URL is required for the legacy runtime.');
+    error.code = 'LARAVEL_BASE_URL_MISSING';
+    throw error;
   }
+
+  if (!runtimeConfig.engineApiToken) {
+    const error = new Error('ENGINE_API_TOKEN is required for the legacy runtime.');
+    error.code = 'ENGINE_API_TOKEN_MISSING';
+    throw error;
+  }
+
+  if (!runtimeConfig.whatsappSessionId) {
+    const error = new Error('WHATSAPP_SESSION_ID is required for the legacy runtime.');
+    error.code = 'WHATSAPP_SESSION_ID_MISSING';
+    throw error;
+  }
+
+  return true;
+};
+
+const validateMultiSessionRuntimeConfig = (runtimeConfig = config) => {
+  if (!runtimeConfig.laravelBaseUrl) {
+    const error = new Error('LARAVEL_BASE_URL is required for the multi-session runtime.');
+    error.code = 'LARAVEL_BASE_URL_MISSING';
+    throw error;
+  }
+
+  if (!runtimeConfig.whatsappEngineInternalToken) {
+    const error = new Error('WHATSAPP_ENGINE_INTERNAL_TOKEN is required for the multi-session runtime.');
+    error.code = 'WHATSAPP_ENGINE_INTERNAL_TOKEN_MISSING';
+    throw error;
+  }
+
+  if (!Number.isInteger(runtimeConfig.pollIntervalMs) || runtimeConfig.pollIntervalMs <= 0) {
+    const error = new Error('ENGINE_POLL_INTERVAL_MS must be a positive integer for the multi-session runtime.');
+    error.code = 'ENGINE_POLL_INTERVAL_MS_INVALID';
+    throw error;
+  }
+
+  return {
+    accountIdAllowlist: parseMultiSessionAccountIds(runtimeConfig.multiSessionAccountIdsRaw),
+  };
+};
+
+const startLegacyRuntime = async () => {
+  validateLegacyRuntimeConfig();
+
+  logger.info('Selected runtime: legacy', {
+    runtime: 'legacy',
+    session_id: config.whatsappSessionId,
+    poll_interval_ms: config.pollIntervalMs,
+  });
 
   logger.info('Starting Yemen Stack WhatsApp engine.', {
     platform: 'Yemen Stack',
@@ -657,6 +705,16 @@ const createLegacyRuntime = () => {
     mode: 'legacy',
     start: startLegacyRuntime,
     shutdown,
+    getSnapshot: () => ({
+      runtime: 'legacy',
+      ready: isReady,
+      restartingClient: isRestartingClient,
+      hasClient: Boolean(client),
+      hasPollTimer: Boolean(pollTimer),
+      isCycleRunning,
+      isShuttingDown,
+      clientGeneration,
+    }),
   };
 };
 
@@ -689,6 +747,8 @@ const createMultiSessionRuntime = (dependencies = {}) => {
     return dependencies.runtime;
   }
 
+  const { accountIdAllowlist } = validateMultiSessionRuntimeConfig();
+
   const sessionManager = dependencies.sessionManager || new SessionManager({
     createClient: createManagedWhatsappClient,
     createMessageWorker: buildSessionMessageWorkerFactory(dependencies),
@@ -709,6 +769,7 @@ const createMultiSessionRuntime = (dependencies = {}) => {
     setInterval: dependencies.setInterval || setInterval,
     clearInterval: dependencies.clearInterval || clearInterval,
     syncIntervalMs: dependencies.syncIntervalMs || config.pollIntervalMs,
+    accountIdAllowlist: dependencies.accountIdAllowlist || accountIdAllowlist,
   });
 };
 
@@ -718,27 +779,49 @@ const createEngineRuntime = (dependencies = {}) => {
       return dependencies.createMultiSessionRuntime();
     }
 
-    return createMultiSessionRuntime(dependencies);
+    const runtime = createMultiSessionRuntime(dependencies);
+    logger.info('Selected runtime: multi-session', {
+      runtime: 'multi-session',
+      allowlist_account_ids: runtime.accountIdAllowlist || [],
+      sync_interval_ms: runtime.syncIntervalMs || config.pollIntervalMs,
+    });
+    return runtime;
   }
 
   if (typeof dependencies.createLegacyRuntime === 'function') {
-    return dependencies.createLegacyRuntime();
+    const runtime = dependencies.createLegacyRuntime();
+    logger.info('Selected runtime: legacy', { runtime: 'legacy' });
+    return runtime;
   }
 
   return createLegacyRuntime();
 };
 
 const shutdownActiveRuntime = async (signal) => {
+  if (runtimeShutdownPromise) {
+    return runtimeShutdownPromise;
+  }
+
   if (!activeRuntime || typeof activeRuntime.shutdown !== 'function') {
     process.exit(0);
-    return;
+    return Promise.resolve();
   }
 
-  await activeRuntime.shutdown(signal);
+  isRuntimeShuttingDown = true;
+  logger.warn('Shutting down active runtime.', {
+    runtime: activeRuntime.mode || 'unknown',
+    signal,
+  });
 
-  if (activeRuntime.mode !== 'legacy') {
-    process.exit(0);
-  }
+  runtimeShutdownPromise = (async () => {
+    await activeRuntime.shutdown(signal);
+
+    if (activeRuntime.mode !== 'legacy') {
+      process.exit(0);
+    }
+  })();
+
+  return runtimeShutdownPromise;
 };
 
 const startEngine = async (dependencies = {}) => {
@@ -759,6 +842,7 @@ if (require.main === module) {
   startEngine().catch(async (error) => {
     logger.error('WhatsApp engine failed to start.', {
       service: 'whatsapp-gateway',
+      code: error.code || null,
       message: error.message,
     });
 
@@ -777,5 +861,8 @@ module.exports = {
   createMultiSessionRuntime,
   createEngineRuntime,
   buildSessionMessageWorkerFactory,
+  validateLegacyRuntimeConfig,
+  validateMultiSessionRuntimeConfig,
+  shutdownActiveRuntime,
   restartWhatsappClient,
 };

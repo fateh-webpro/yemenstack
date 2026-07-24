@@ -28,6 +28,36 @@ const maskToken = (token) => {
   return `${token.slice(0, 4)}...${token.slice(-4)}`;
 };
 
+const parseMultiSessionAccountIds = (value) => {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    return [];
+  }
+
+  const uniqueIds = new Set();
+
+  for (const rawPart of String(value).split(',')) {
+    const part = rawPart.trim();
+
+    if (!/^\d+$/.test(part)) {
+      const error = new Error('WHATSAPP_MULTI_SESSION_ACCOUNT_IDS must contain only positive numeric account ids.');
+      error.code = 'WHATSAPP_MULTI_SESSION_ACCOUNT_IDS_INVALID';
+      throw error;
+    }
+
+    const parsed = Number.parseInt(part, 10);
+
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      const error = new Error('WHATSAPP_MULTI_SESSION_ACCOUNT_IDS must contain only positive numeric account ids.');
+      error.code = 'WHATSAPP_MULTI_SESSION_ACCOUNT_IDS_INVALID';
+      throw error;
+    }
+
+    uniqueIds.add(parsed);
+  }
+
+  return Array.from(uniqueIds.values());
+};
+
 const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
   engineName: process.env.ENGINE_NAME || 'yemenstack-whatsapp-engine',
@@ -36,6 +66,7 @@ const config = {
   engineApiToken: process.env.ENGINE_API_TOKEN || '',
   whatsappEngineInternalToken: process.env.WHATSAPP_ENGINE_INTERNAL_TOKEN || '',
   multiSessionEnabled: toBoolean(process.env.WHATSAPP_MULTI_SESSION_ENABLED, false),
+  multiSessionAccountIdsRaw: process.env.WHATSAPP_MULTI_SESSION_ACCOUNT_IDS || '',
   pendingMessagesPath: process.env.ENGINE_PENDING_MESSAGES_PATH || '/api/v1/whatsapp/engine/messages/pending',
   queuedMessagesPath: process.env.ENGINE_QUEUED_MESSAGES_PATH || '/api/v1/whatsapp/engine/messages/queued',
   accountStatusPath: process.env.ENGINE_ACCOUNT_STATUS_PATH || '/api/v1/whatsapp/engine/account/status',
@@ -78,6 +109,8 @@ const getPublicConfig = () => ({
   whatsappRestartTimeoutMs: config.whatsappRestartTimeoutMs,
   whatsappMaxRestartAttempts: config.whatsappMaxRestartAttempts,
   multiSessionEnabled: config.multiSessionEnabled,
+  multiSessionAccountIdsRaw: config.multiSessionAccountIdsRaw,
+  multiSessionAccountIds: parseMultiSessionAccountIds(config.multiSessionAccountIdsRaw),
   engineApiTokenMasked: maskToken(config.engineApiToken),
   whatsappEngineInternalTokenMasked: maskToken(config.whatsappEngineInternalToken),
 });
@@ -86,4 +119,5 @@ module.exports = {
   config,
   getPublicConfig,
   maskToken,
+  parseMultiSessionAccountIds,
 };
