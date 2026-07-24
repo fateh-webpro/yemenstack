@@ -4,6 +4,7 @@ const { SessionMessageWorker } = require('../src/sessionMessageWorker');
 
 const createHarness = (options = {}) => {
   const calls = {
+    createMessageClient: [],
     resolveApiToken: 0,
     createLaravelClient: [],
     fetchPendingMessages: [],
@@ -72,10 +73,16 @@ const createHarness = (options = {}) => {
   };
 
   const worker = new SessionMessageWorker({
-    accountId: 501,
-    sessionName: 'wa_worker_501',
+    accountId: options.accountId ?? 501,
+    sessionName: options.sessionName ?? 'wa_worker_501',
     isReady: () => ready,
     getWhatsappClient: () => client,
+    createMessageClient: Object.prototype.hasOwnProperty.call(options, 'createMessageClient')
+      ? options.createMessageClient
+      : ({ accountId, sessionName }) => {
+        calls.createMessageClient.push({ accountId, sessionName });
+        return fakeLaravelClient;
+      },
     resolveApiToken: Object.prototype.hasOwnProperty.call(options, 'resolveApiToken')
       ? options.resolveApiToken
       : (async () => {
@@ -123,25 +130,30 @@ test('worker start is idempotent and does not run before ready', async () => {
   await harness.worker.start();
   await harness.worker.start();
 
+  assert.equal(harness.calls.createMessageClient.length, 0);
   assert.equal(harness.calls.resolveApiToken, 0);
   assert.equal(harness.worker.getSnapshot().isRunning, false);
   assert.equal(harness.calls.intervals.length, 0);
 });
 
-test('worker runCycle uses the session token and does not touch ENGINE_API_TOKEN', async () => {
+test('worker runCycle uses the central session message client for its own account', async () => {
   const harness = createHarness({
+    accountId: 701,
+    sessionName: 'wa_worker_701',
     pendingMessages: [{ id: 1, recipient: '967700000001', body: 'pending', status: 'pending' }],
     queuedMessages: [{ id: 2, recipient: '967700000002', body: 'hello queued' }],
   });
 
   await harness.worker.start();
 
-  assert.deepEqual(harness.calls.createLaravelClient, ['session-token-501']);
+  assert.deepEqual(harness.calls.createMessageClient, [{ accountId: 701, sessionName: 'wa_worker_701' }]);
   assert.deepEqual(harness.calls.fetchPendingMessages, [3]);
   assert.deepEqual(harness.calls.claimMessage, [1]);
   assert.deepEqual(harness.calls.fetchQueuedMessages, [3]);
   assert.equal(harness.calls.sendMessage.length, 1);
   assert.equal(harness.calls.markMessageSent.length, 1);
+  assert.equal(harness.calls.resolveApiToken, 0);
+  assert.equal(harness.calls.createLaravelClient.length, 0);
   assert.equal(harness.worker.getSnapshot().sentCount, 1);
 });
 
@@ -208,16 +220,33 @@ test('worker stop is idempotent and clears the timer', async () => {
   assert.equal(harness.worker.getSnapshot().hasTimer, false);
 });
 
-test('missing token resolver keeps the session safe without creating a laravel client', async () => {
+test('missing central message client configuration keeps the session safe', async () => {
   const harness = createHarness({
-    resolveApiToken: null,
+    createMessageClient: () => {
+      const error = new Error('WHATSAPP_ENGINE_INTERNAL_TOKEN is not configured.');
+      error.code = 'WHATSAPP_ENGINE_INTERNAL_TOKEN_MISSING';
+      throw error;
+    },
   });
 
   await harness.worker.start();
 
   assert.equal(harness.calls.createLaravelClient.length, 0);
   assert.equal(harness.worker.getSnapshot().isRunning, false);
-  assert.equal(harness.worker.getSnapshot().lastError.code, 'SESSION_API_TOKEN_MISSING');
+  assert.equal(harness.worker.getSnapshot().lastError.code, 'WHATSAPP_ENGINE_INTERNAL_TOKEN_MISSING');
+});
+
+test('legacy fallback still works when only resolveApiToken is available', async () => {
+  const harness = createHarness({
+    createMessageClient: null,
+    apiToken: 'legacy-session-token',
+    queuedMessages: [],
+  });
+
+  await harness.worker.start();
+
+  assert.equal(harness.calls.resolveApiToken, 1);
+  assert.deepEqual(harness.calls.createLaravelClient, ['legacy-session-token']);
 });
 
 test('snapshot never exposes apiToken or whatsapp client', async () => {

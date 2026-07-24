@@ -44,6 +44,7 @@ class SessionMessageWorker {
     this.getWhatsappClient = dependencies.getWhatsappClient || (() => null);
     this.isReady = dependencies.isReady || (() => false);
     this.createLaravelClient = dependencies.createLaravelClient || createLaravelClient;
+    this.createMessageClient = dependencies.createMessageClient || null;
     this.resolveApiToken = dependencies.resolveApiToken || null;
     this.laravelMessageClient = dependencies.laravelMessageClient || null;
     this.setInterval = dependencies.setInterval || global.setInterval;
@@ -75,7 +76,7 @@ class SessionMessageWorker {
       await this.ensureLaravelClient();
     } catch (error) {
       this.lastError = sanitizeError(error);
-      this.logger.warn('Session message worker could not start without a session API token.', {
+      this.logger.warn('Session message worker could not start without a usable Laravel message client.', {
         accountId: this.accountId,
         sessionName: this.sessionName,
         code: error.code || null,
@@ -231,6 +232,15 @@ class SessionMessageWorker {
 
   async ensureLaravelClient() {
     if (this.laravelMessageClient) {
+      return this.laravelMessageClient;
+    }
+
+    if (typeof this.createMessageClient === 'function') {
+      this.laravelMessageClient = await this.createMessageClient({
+        accountId: this.accountId,
+        sessionName: this.sessionName,
+      });
+
       return this.laravelMessageClient;
     }
 

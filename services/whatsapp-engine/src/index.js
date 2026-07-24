@@ -5,6 +5,7 @@ const { config, getPublicConfig } = require('./config');
 const logger = require('./logger');
 const { pollPendingMessages } = require('./pendingMessages');
 const {
+  createEngineSessionMessageClient,
   createLaravelClient,
   fetchQueuedMessages,
   getEngineSession,
@@ -664,17 +665,15 @@ const buildSessionMessageWorkerFactory = (dependencies = {}) => {
     return dependencies.createMessageWorker;
   }
 
-  if (typeof dependencies.resolveSessionApiToken !== 'function') {
-    return null;
-  }
-
   return (descriptor, helpers) => new SessionMessageWorker({
     accountId: descriptor.accountId,
     sessionName: descriptor.sessionName,
     getWhatsappClient: helpers.getWhatsappClient,
     isReady: helpers.isReady,
-    resolveApiToken: () => dependencies.resolveSessionApiToken(descriptor.accountId, descriptor),
-    createLaravelClient: dependencies.createLaravelClient || createLaravelClient,
+    createMessageClient: dependencies.createMessageClient || (({ accountId }) => createEngineSessionMessageClient({
+      internalToken: config.whatsappEngineInternalToken,
+      accountId,
+    })),
     logger,
     pollIntervalMs: dependencies.messagePollIntervalMs || config.pollIntervalMs,
     fetchLimit: dependencies.fetchLimit || config.fetchLimit,
