@@ -4,24 +4,19 @@ namespace App\Http\Controllers\Api\V1\Whatsapp;
 
 use App\Http\Controllers\Controller;
 use App\Models\Message;
+use App\Models\WhatsappAccount;
 use App\Services\Whatsapp\EngineMessageLifecycleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-class EngineMarkMessageSentController extends Controller
+class EngineSessionMarkMessageSentController extends Controller
 {
-    public function __invoke(Request $request, Message $message, EngineMessageLifecycleService $service): JsonResponse
-    {
-        $credential = $request->attributes->get('api_credential');
-        $whatsappAccount = $request->attributes->get('whatsapp_account');
-
-        if (! $credential || ! $credential->hasAbility('messages:send')) {
-            return response()->json([
-                'success' => false,
-                'message' => 'This API token is not allowed to mark messages as sent.',
-            ], 403);
-        }
-
+    public function __invoke(
+        Request $request,
+        WhatsappAccount $whatsappAccount,
+        Message $message,
+        EngineMessageLifecycleService $service,
+    ): JsonResponse {
         if (! $service->messageBelongsToAccount($whatsappAccount, $message)) {
             return response()->json([
                 'success' => false,

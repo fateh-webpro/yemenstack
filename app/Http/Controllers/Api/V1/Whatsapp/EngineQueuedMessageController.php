@@ -4,15 +4,15 @@ namespace App\Http\Controllers\Api\V1\Whatsapp;
 
 use App\Http\Controllers\Controller;
 use App\Models\Message;
+use App\Services\Whatsapp\EngineMessageLifecycleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class EngineQueuedMessageController extends Controller
 {
-    public function __invoke(Request $request): JsonResponse
+    public function __invoke(Request $request, EngineMessageLifecycleService $service): JsonResponse
     {
         $credential = $request->attributes->get('api_credential');
-        $client = $request->attributes->get('client');
         $whatsappAccount = $request->attributes->get('whatsapp_account');
 
         if (! $credential || ! $credential->hasAbility('messages:send')) {
@@ -22,26 +22,8 @@ class EngineQueuedMessageController extends Controller
             ], 403);
         }
 
-        $limit = max(1, min((int) $request->integer('limit', 10), 50));
-
-        $messages = Message::query()
-            ->where('client_id', $client->id)
-            ->where('whatsapp_account_id', $whatsappAccount->id)
-            ->where('direction', Message::DIRECTION_OUTBOUND)
-            ->where('status', Message::STATUS_QUEUED)
-            ->orderBy('id')
-            ->limit($limit)
-            ->get([
-                'id',
-                'recipient',
-                'sender',
-                'message_type',
-                'body',
-                'payload',
-                'status',
-                'created_at',
-                'updated_at',
-            ]);
+        $limit = $service->normalizeLimit((int) $request->integer('limit', 10));
+        $messages = $service->listQueuedMessages($whatsappAccount, $limit);
 
         return response()->json([
             'success' => true,

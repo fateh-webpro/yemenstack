@@ -8,6 +8,11 @@ use App\Http\Controllers\Api\V1\Whatsapp\EngineMarkMessageFailedController;
 use App\Http\Controllers\Api\V1\Whatsapp\EngineMarkMessageSentController;
 use App\Http\Controllers\Api\V1\Whatsapp\EnginePendingMessageController;
 use App\Http\Controllers\Api\V1\Whatsapp\EngineQueuedMessageController;
+use App\Http\Controllers\Api\V1\Whatsapp\EngineSessionClaimMessageController;
+use App\Http\Controllers\Api\V1\Whatsapp\EngineSessionMarkMessageFailedController;
+use App\Http\Controllers\Api\V1\Whatsapp\EngineSessionMarkMessageSentController;
+use App\Http\Controllers\Api\V1\Whatsapp\EngineSessionPendingMessagesController;
+use App\Http\Controllers\Api\V1\Whatsapp\EngineSessionQueuedMessagesController;
 use App\Http\Controllers\Api\V1\Whatsapp\EngineShowSessionController;
 use App\Http\Controllers\Api\V1\Whatsapp\EngineStartSessionController;
 use App\Http\Controllers\Api\V1\Whatsapp\EngineStopSessionController;
@@ -22,6 +27,11 @@ Route::prefix('v1/whatsapp/engine')->middleware('whatsapp.engine')->group(functi
     Route::get('/sessions/{whatsappAccount}', EngineShowSessionController::class);
     Route::post('/sessions/{whatsappAccount}/start', EngineStartSessionController::class);
     Route::post('/sessions/{whatsappAccount}/stop', EngineStopSessionController::class);
+    Route::get('/sessions/{whatsappAccount}/messages/pending', EngineSessionPendingMessagesController::class);
+    Route::post('/sessions/{whatsappAccount}/messages/{message}/claim', EngineSessionClaimMessageController::class);
+    Route::get('/sessions/{whatsappAccount}/messages/queued', EngineSessionQueuedMessagesController::class);
+    Route::post('/sessions/{whatsappAccount}/messages/{message}/mark-sent', EngineSessionMarkMessageSentController::class);
+    Route::post('/sessions/{whatsappAccount}/messages/{message}/mark-failed', EngineSessionMarkMessageFailedController::class);
 });
 
 Route::prefix('v1')->middleware('api.credential')->group(function (): void {
