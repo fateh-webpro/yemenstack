@@ -32,9 +32,11 @@ class MultiSessionRuntime {
     this.lastSyncSummary = {
       fetchedCount: 0,
       filteredCount: 0,
-      startedCount: 0,
+      createdCount: 0,
+      alreadyManagedCount: 0,
       stoppedCount: 0,
       removedCount: 0,
+      failedCount: 0,
       allowedAccountIds: this.accountIdAllowlist,
     };
     this.isShuttingDown = false;
@@ -83,9 +85,11 @@ class MultiSessionRuntime {
         const fetchedSessions = Array.isArray(payload?.data) ? payload.data : [];
         const sessions = this.filterSessions(fetchedSessions);
         const knownAccountIds = new Set();
-        let startedCount = 0;
+        let createdCount = 0;
+        let alreadyManagedCount = 0;
         let stoppedCount = 0;
         let removedCount = 0;
+        let failedCount = 0;
 
         this.logger.info('Fetched sessions from Laravel for multi-session sync.', {
           runtime: this.mode,
@@ -105,18 +109,28 @@ class MultiSessionRuntime {
 
           try {
             if (session.session_desired_state === 'running') {
-              this.logger.info('Starting managed session from sync.', {
-                runtime: this.mode,
-                accountId,
-                sessionName: session.session_name,
-              });
+              const isAlreadyManaged = this.sessionManager.has(accountId);
+
+              if (!isAlreadyManaged) {
+                this.logger.info('Starting managed session from sync.', {
+                  runtime: this.mode,
+                  accountId,
+                  sessionName: session.session_name,
+                });
+              }
 
               await this.sessionManager.start({
                 accountId,
                 sessionName: session.session_name,
                 desiredState: 'running',
               });
-              startedCount += 1;
+
+              if (isAlreadyManaged) {
+                alreadyManagedCount += 1;
+              } else {
+                createdCount += 1;
+              }
+
               continue;
             }
 
@@ -131,6 +145,7 @@ class MultiSessionRuntime {
               stoppedCount += 1;
             }
           } catch (error) {
+            failedCount += 1;
             this.logger.error('Failed to sync managed session.', {
               runtime: this.mode,
               accountId,
@@ -156,6 +171,7 @@ class MultiSessionRuntime {
             await this.sessionManager.remove(snapshot.accountId);
             removedCount += 1;
           } catch (error) {
+            failedCount += 1;
             this.logger.error('Failed to remove missing managed session.', {
               runtime: this.mode,
               accountId: snapshot.accountId,
@@ -170,9 +186,11 @@ class MultiSessionRuntime {
         this.lastSyncSummary = {
           fetchedCount: fetchedSessions.length,
           filteredCount: sessions.length,
-          startedCount,
+          createdCount,
+          alreadyManagedCount,
           stoppedCount,
           removedCount,
+          failedCount,
           allowedAccountIds: this.accountIdAllowlist,
         };
         this.touch();

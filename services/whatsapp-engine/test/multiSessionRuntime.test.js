@@ -143,6 +143,26 @@ test('sync starts running sessions and stops stopped sessions', async () => {
   assert.equal(harness.started.length, 1);
   assert.equal(harness.started[0].accountId, 1);
   assert.deepEqual(harness.stopped, ['2']);
+  assert.equal(harness.runtime.getSnapshot().lastSyncSummary.createdCount, 1);
+  assert.equal(harness.runtime.getSnapshot().lastSyncSummary.stoppedCount, 1);
+});
+
+test('sync counts already managed running sessions without logging a new start each cycle', async () => {
+  const harness = createHarness(async () => [
+    { id: 1, session_name: 'wa_one', session_desired_state: 'running' },
+  ]);
+
+  await harness.runtime.syncSessions();
+  const firstStartLogs = harness.loggerCalls.filter((entry) => entry.level === 'info' && entry.args[0] === 'Starting managed session from sync.');
+
+  await harness.runtime.syncSessions();
+  const secondStartLogs = harness.loggerCalls.filter((entry) => entry.level === 'info' && entry.args[0] === 'Starting managed session from sync.');
+  const summary = harness.runtime.getSnapshot().lastSyncSummary;
+
+  assert.equal(firstStartLogs.length, 1);
+  assert.equal(secondStartLogs.length, 1);
+  assert.equal(summary.createdCount, 0);
+  assert.equal(summary.alreadyManagedCount, 1);
 });
 
 test('allowlist filters sessions down to the requested account ids only', async () => {
@@ -183,6 +203,7 @@ test('sync removes sessions that no longer exist in Laravel', async () => {
   await harness.runtime.syncSessions();
 
   assert.deepEqual(harness.removed, ['3']);
+  assert.equal(harness.runtime.getSnapshot().lastSyncSummary.removedCount, 1);
 });
 
 test('session sync errors are isolated and do not stop other sessions', async () => {
@@ -218,6 +239,7 @@ test('session sync errors are isolated and do not stop other sessions', async ()
   assert.equal(harness.started.length, 1);
   assert.equal(harness.started[0].accountId, 5);
   assert.equal(harness.loggerCalls.some((entry) => entry.level === 'error'), true);
+  assert.equal(harness.runtime.getSnapshot().lastSyncSummary.failedCount, 1);
 });
 
 test('sync does not overlap and returns the same promise while running', async () => {

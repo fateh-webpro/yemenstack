@@ -21,6 +21,14 @@ const sanitizeError = (error) => {
   };
 };
 
+const sanitizeReason = (reason) => {
+  if (reason === undefined || reason === null || reason === '') {
+    return null;
+  }
+
+  return String(reason);
+};
+
 const isSafeSessionName = (sessionName) => {
   if (typeof sessionName !== 'string') {
     return false;
@@ -41,6 +49,7 @@ class SessionManager {
         destroy: async () => {},
       })),
       createMessageWorker: dependencies.createMessageWorker || null,
+      createStatusClient: dependencies.createStatusClient || null,
       destroyClient: dependencies.destroyClient || null,
       startPolling: dependencies.startPolling || (() => null),
       stopPolling: dependencies.stopPolling || (() => null),
@@ -76,6 +85,7 @@ class SessionManager {
     if (!context) {
       this.ensureSessionNameNotInUse(normalized.sessionName, normalized.accountId);
       context = this.createContext(normalized);
+      this.attachStatusClient(context);
       this.attachMessageWorker(context);
       this.sessions.set(key, context);
       this.sessionNames.set(normalized.sessionName, key);
@@ -111,6 +121,7 @@ class SessionManager {
 
       context.client = client;
       this.touchContext(context);
+      await this.reportStatus(context.accountId, generation, 'connecting');
 
       if (client && typeof client.initialize === 'function') {
         await client.initialize();
@@ -131,6 +142,11 @@ class SessionManager {
       context.lastError = sanitizeError(error);
       context.actualState = 'error';
       this.touchContext(context);
+
+      await this.reportStatus(context.accountId, generation, 'error', {
+        error_message: error?.message || 'Failed to start managed session.',
+        error_code: error?.code || null,
+      });
 
       if (context.client) {
         await this.destroyClient(context.client, context, 'start_failure');
@@ -332,7 +348,13 @@ class SessionManager {
           return;
         }
 
+        this.dependencies.logger.info('Managed session QR is required.', {
+          accountId: context.accountId,
+          sessionName: context.sessionName,
+          generation,
+        });
         this.touchContext(context);
+        void this.reportStatus(context.accountId, generation, 'qr_required');
       },
       onAuthenticated: () => {
         const context = getContext();
@@ -340,7 +362,13 @@ class SessionManager {
           return;
         }
 
+        this.dependencies.logger.info('Managed session authenticated.', {
+          accountId: context.accountId,
+          sessionName: context.sessionName,
+          generation,
+        });
         this.touchContext(context);
+        void this.reportStatus(context.accountId, generation, 'authenticated');
       },
       onReady: () => {
         const context = getContext();
@@ -352,7 +380,15 @@ class SessionManager {
         context.actualState = 'running';
         context.lastError = null;
         context.pollTimer = this.dependencies.startPolling(context) || context.pollTimer || null;
+        this.dependencies.logger.info('Managed session ready.', {
+          accountId: context.accountId,
+          sessionName: context.sessionName,
+          generation,
+        });
         this.touchContext(context);
+        void this.reportStatus(context.accountId, generation, 'connected', {
+          last_seen_at: new Date().toISOString(),
+        });
         void this.startMessageWorker(context);
       },
       onDisconnected: (reason) => {
@@ -371,8 +407,17 @@ class SessionManager {
           context.pollTimer = null;
         }
 
+        this.dependencies.logger.warn('Managed session disconnected.', {
+          accountId: context.accountId,
+          sessionName: context.sessionName,
+          generation,
+          reason: sanitizeReason(reason),
+        });
         void this.stopMessageWorker(context, 'disconnected_event');
         this.touchContext(context);
+        void this.reportStatus(context.accountId, generation, 'disconnected', {
+          reason: sanitizeReason(reason),
+        });
       },
       onError: (error) => {
         const context = getContext();
@@ -383,8 +428,19 @@ class SessionManager {
         context.isReady = false;
         context.actualState = 'error';
         context.lastError = sanitizeError(error);
+        this.dependencies.logger.error('Managed session emitted an error event.', {
+          accountId: context.accountId,
+          sessionName: context.sessionName,
+          generation,
+          code: error?.code || null,
+          message: error?.message || String(error),
+        });
         void this.stopMessageWorker(context, 'error_event');
         this.touchContext(context);
+        void this.reportStatus(context.accountId, generation, 'error', {
+          error_code: error?.code || null,
+          error_message: error?.message || String(error),
+        });
       },
     };
   }
@@ -409,6 +465,7 @@ class SessionManager {
       pollTimer: null,
       isCycleRunning: false,
       messageWorker: null,
+      statusClient: null,
       lastError: null,
       createdAt: now,
       updatedAt: now,
@@ -433,6 +490,7 @@ class SessionManager {
       isReady: context.isReady,
       hasClient: Boolean(context.client),
       hasMessageWorker: Boolean(context.messageWorker),
+      hasStatusClient: Boolean(context.statusClient),
       messageWorker: typeof context.messageWorker?.getSnapshot === 'function'
         ? context.messageWorker.getSnapshot()
         : null,
@@ -440,6 +498,14 @@ class SessionManager {
       createdAt: context.createdAt,
       updatedAt: context.updatedAt,
     };
+  }
+
+  attachStatusClient(context) {
+    if (typeof this.dependencies.createStatusClient !== 'function') {
+      return;
+    }
+
+    context.statusClient = this.dependencies.createStatusClient(this.buildSessionDescriptor(context));
   }
 
   attachMessageWorker(context) {
@@ -490,6 +556,43 @@ class SessionManager {
         message: error.message,
       });
       return null;
+    }
+  }
+
+  async reportStatus(accountId, generation, status, extra = {}) {
+    if (!this.isCurrentGeneration(accountId, generation)) {
+      return false;
+    }
+
+    const context = this.get(accountId);
+
+    if (!context || !context.statusClient || typeof context.statusClient.updateSessionStatus !== 'function') {
+      return false;
+    }
+
+    const payload = {};
+
+    for (const [key, value] of Object.entries(extra)) {
+      if (value === undefined || value === null || value === '') {
+        continue;
+      }
+
+      payload[key] = value;
+    }
+
+    try {
+      await context.statusClient.updateSessionStatus(status, payload);
+      return true;
+    } catch (error) {
+      this.dependencies.logger.warn('Failed to update managed session status.', {
+        accountId: context.accountId,
+        sessionName: context.sessionName,
+        generation,
+        status,
+        code: error?.code || null,
+        message: error?.message || String(error),
+      });
+      return false;
     }
   }
 

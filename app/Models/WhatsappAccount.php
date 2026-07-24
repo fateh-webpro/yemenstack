@@ -15,6 +15,7 @@ class WhatsappAccount extends Model
     public const STATUS_DISCONNECTED = 'disconnected';
     public const STATUS_QR_REQUIRED = 'qr_required';
     public const STATUS_CONNECTING = 'connecting';
+    public const STATUS_AUTHENTICATED = 'authenticated';
     public const STATUS_CONNECTED = 'connected';
     public const STATUS_LOGGED_OUT = 'logged_out';
     public const STATUS_ERROR = 'error';
@@ -74,6 +75,7 @@ class WhatsappAccount extends Model
             self::STATUS_DISCONNECTED => 'غير متصل',
             self::STATUS_QR_REQUIRED => 'يتطلب QR',
             self::STATUS_CONNECTING => 'جارٍ الاتصال',
+            self::STATUS_AUTHENTICATED => 'تمت المصادقة',
             self::STATUS_CONNECTED => 'متصل',
             self::STATUS_LOGGED_OUT => 'تم تسجيل الخروج',
             self::STATUS_ERROR => 'خطأ',

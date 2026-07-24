@@ -106,6 +106,10 @@ const buildEngineSessionStopUrl = (accountId) => {
   return buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/stop`);
 };
 
+const buildEngineSessionStatusUrl = (accountId) => {
+  return buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/status`);
+};
+
 const buildEngineSessionPendingMessagesUrl = (accountId, limit = config.fetchLimit) => {
   const url = buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/messages/pending`);
   url.searchParams.set('limit', String(limit));
@@ -284,6 +288,15 @@ const createEngineSessionMessageClient = (options = {}) => {
         body: extra,
       });
     },
+    updateSessionStatus: async (status, extra = {}) => {
+      ensureCentralMessageClient();
+
+      return requestLaravelJson(buildEngineSessionStatusUrl(normalizedAccountId), {
+        method: 'POST',
+        token: internalToken,
+        body: { status, ...extra },
+      });
+    },
   };
 };
 
@@ -360,6 +373,7 @@ module.exports = {
   buildEngineSessionUrl,
   buildEngineSessionStartUrl,
   buildEngineSessionStopUrl,
+  buildEngineSessionStatusUrl,
   buildEngineSessionPendingMessagesUrl,
   buildEngineSessionQueuedMessagesUrl,
   buildEngineSessionClaimMessageUrl,

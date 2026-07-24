@@ -752,6 +752,10 @@ const createMultiSessionRuntime = (dependencies = {}) => {
   const sessionManager = dependencies.sessionManager || new SessionManager({
     createClient: createManagedWhatsappClient,
     createMessageWorker: buildSessionMessageWorkerFactory(dependencies),
+    createStatusClient: dependencies.createStatusClient || ((descriptor) => createEngineSessionMessageClient({
+      internalToken: config.whatsappEngineInternalToken,
+      accountId: descriptor.accountId,
+    })),
     logger,
   });
 
