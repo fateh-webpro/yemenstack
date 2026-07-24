@@ -8,6 +8,14 @@ const ensureToken = () => {
   }
 };
 
+const ensureInternalToken = () => {
+  if (!config.whatsappEngineInternalToken) {
+    const error = new Error('WHATSAPP_ENGINE_INTERNAL_TOKEN is not configured.');
+    error.code = 'WHATSAPP_ENGINE_INTERNAL_TOKEN_MISSING';
+    throw error;
+  }
+};
+
 const parseJson = async (response) => {
   try {
     return await response.json();
@@ -61,109 +69,162 @@ const buildMarkFailedUrl = (messageId) => {
   return new URL(path, baseUrl);
 };
 
-const fetchPendingMessages = async (limit = config.fetchLimit) => {
-  ensureToken();
-  const response = await fetch(buildPendingMessagesUrl(limit), {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${config.engineApiToken}`,
-    },
+const buildEngineSessionsUrl = (filters = {}) => {
+  const baseUrl = new URL(config.laravelBaseUrl);
+  const url = new URL('/api/v1/whatsapp/engine/sessions', baseUrl);
+
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === undefined || value === null || value === '') {
+      continue;
+    }
+
+    url.searchParams.set(key, String(value));
+  }
+
+  return url;
+};
+
+const buildEngineSessionUrl = (accountId) => {
+  const baseUrl = new URL(config.laravelBaseUrl);
+  return new URL(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(String(accountId))}`, baseUrl);
+};
+
+const buildEngineSessionStartUrl = (accountId) => {
+  const baseUrl = new URL(config.laravelBaseUrl);
+  return new URL(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(String(accountId))}/start`, baseUrl);
+};
+
+const buildEngineSessionStopUrl = (accountId) => {
+  const baseUrl = new URL(config.laravelBaseUrl);
+  return new URL(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(String(accountId))}/stop`, baseUrl);
+};
+
+const requestLaravelJson = async (url, options = {}) => {
+  const {
+    method = 'GET',
+    token,
+    body,
+  } = options;
+
+  const headers = {
+    Accept: 'application/json',
+    Authorization: `Bearer ${token}`,
+  };
+
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  const response = await fetch(url, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
+
   const payload = await parseJson(response);
+
   if (!response.ok) {
     throwHttpError(response, payload);
   }
+
   return payload;
+};
+
+const fetchPendingMessages = async (limit = config.fetchLimit) => {
+  ensureToken();
+
+  return requestLaravelJson(buildPendingMessagesUrl(limit), {
+    method: 'GET',
+    token: config.engineApiToken,
+  });
 };
 
 const fetchQueuedMessages = async (limit = config.fetchLimit) => {
   ensureToken();
-  const response = await fetch(buildQueuedMessagesUrl(limit), {
+
+  return requestLaravelJson(buildQueuedMessagesUrl(limit), {
     method: 'GET',
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${config.engineApiToken}`,
-    },
+    token: config.engineApiToken,
   });
-  const payload = await parseJson(response);
-  if (!response.ok) {
-    throwHttpError(response, payload);
-  }
-  return payload;
 };
 
 const claimMessage = async (messageId) => {
   ensureToken();
-  const response = await fetch(buildClaimMessageUrl(messageId), {
+
+  return requestLaravelJson(buildClaimMessageUrl(messageId), {
     method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.engineApiToken}`,
-    },
-    body: JSON.stringify({}),
+    token: config.engineApiToken,
+    body: {},
   });
-  const payload = await parseJson(response);
-  if (!response.ok) {
-    throwHttpError(response, payload);
-  }
-  return payload;
 };
 
 const markMessageSent = async (messageId, extra = {}) => {
   ensureToken();
   const body = Object.keys(extra).length > 0 ? extra : { mode: 'simulation' };
-  const response = await fetch(buildMarkSentUrl(messageId), {
+
+  return requestLaravelJson(buildMarkSentUrl(messageId), {
     method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.engineApiToken}`,
-    },
-    body: JSON.stringify(body),
+    token: config.engineApiToken,
+    body,
   });
-  const payload = await parseJson(response);
-  if (!response.ok) {
-    throwHttpError(response, payload);
-  }
-  return payload;
 };
 
 const markMessageFailed = async (messageId, extra = {}) => {
   ensureToken();
-  const response = await fetch(buildMarkFailedUrl(messageId), {
+
+  return requestLaravelJson(buildMarkFailedUrl(messageId), {
     method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.engineApiToken}`,
-    },
-    body: JSON.stringify(extra),
+    token: config.engineApiToken,
+    body: extra,
   });
-  const payload = await parseJson(response);
-  if (!response.ok) {
-    throwHttpError(response, payload);
-  }
-  return payload;
 };
 
 const updateWhatsappAccountStatus = async (status, extra = {}) => {
   ensureToken();
-  const response = await fetch(buildAccountStatusUrl(), {
+
+  return requestLaravelJson(buildAccountStatusUrl(), {
     method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.engineApiToken}`,
-    },
-    body: JSON.stringify({ status, ...extra }),
+    token: config.engineApiToken,
+    body: { status, ...extra },
   });
-  const payload = await parseJson(response);
-  if (!response.ok) {
-    throwHttpError(response, payload);
-  }
-  return payload;
+};
+
+const getEngineSessions = async (filters = {}) => {
+  ensureInternalToken();
+
+  return requestLaravelJson(buildEngineSessionsUrl(filters), {
+    method: 'GET',
+    token: config.whatsappEngineInternalToken,
+  });
+};
+
+const getEngineSession = async (accountId) => {
+  ensureInternalToken();
+
+  return requestLaravelJson(buildEngineSessionUrl(accountId), {
+    method: 'GET',
+    token: config.whatsappEngineInternalToken,
+  });
+};
+
+const requestEngineSessionStart = async (accountId) => {
+  ensureInternalToken();
+
+  return requestLaravelJson(buildEngineSessionStartUrl(accountId), {
+    method: 'POST',
+    token: config.whatsappEngineInternalToken,
+    body: {},
+  });
+};
+
+const requestEngineSessionStop = async (accountId) => {
+  ensureInternalToken();
+
+  return requestLaravelJson(buildEngineSessionStopUrl(accountId), {
+    method: 'POST',
+    token: config.whatsappEngineInternalToken,
+    body: {},
+  });
 };
 
 module.exports = {
@@ -173,10 +234,19 @@ module.exports = {
   buildClaimMessageUrl,
   buildMarkSentUrl,
   buildMarkFailedUrl,
+  buildEngineSessionsUrl,
+  buildEngineSessionUrl,
+  buildEngineSessionStartUrl,
+  buildEngineSessionStopUrl,
   fetchPendingMessages,
   fetchQueuedMessages,
   claimMessage,
   markMessageSent,
   markMessageFailed,
   updateWhatsappAccountStatus,
+  getEngineSessions,
+  getEngineSession,
+  requestEngineSessionStart,
+  requestEngineSessionStop,
+  requestLaravelJson,
 };

@@ -4,8 +4,11 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const { config, getPublicConfig } = require('./config');
 const logger = require('./logger');
 const { pollPendingMessages } = require('./pendingMessages');
-const { fetchQueuedMessages, updateWhatsappAccountStatus } = require('./laravelClient');
+const { fetchQueuedMessages, getEngineSession, getEngineSessions, requestEngineSessionStart, requestEngineSessionStop, updateWhatsappAccountStatus } = require('./laravelClient');
 const { normalizeRecipient, isRecoverableWhatsappError, sendQueuedMessage } = require('./realMessageSender');
+const { SessionManager } = require('./sessionManager');
+const { MultiSessionRuntime } = require('./multiSessionRuntime');
+const { createManagedWhatsappClient } = require('./createManagedWhatsappClient');
 
 const CLIENT_RESTART_WINDOW_MS = 5 * 60 * 1000;
 
@@ -19,6 +22,7 @@ let currentRestartPromise = null;
 let pollTimer = null;
 let isCycleRunning = false;
 let restartAttemptTimestamps = [];
+let activeRuntime = null;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -615,7 +619,7 @@ const shutdown = async (signal) => {
   process.exit(0);
 };
 
-const startEngine = async () => {
+const startLegacyRuntime = async () => {
   if (!config.engineApiToken) {
     logger.warn('ENGINE_API_TOKEN is not configured; Yemen Stack WhatsApp engine will not start.', {
       service: 'whatsapp-gateway',
@@ -635,15 +639,86 @@ const startEngine = async () => {
 
   await updateStatus('connecting');
 
+
+  await initializeWhatsappClient('startup');
+};
+
+const createLegacyRuntime = () => {
+  return {
+    mode: 'legacy',
+    start: startLegacyRuntime,
+    shutdown,
+  };
+};
+
+const createMultiSessionRuntime = (dependencies = {}) => {
+  if (dependencies.runtime) {
+    return dependencies.runtime;
+  }
+
+  const sessionManager = dependencies.sessionManager || new SessionManager({
+    createClient: createManagedWhatsappClient,
+    logger,
+  });
+
+  const laravelClient = dependencies.laravelClient || {
+    getEngineSessions,
+    getEngineSession,
+    requestEngineSessionStart,
+    requestEngineSessionStop,
+  };
+
+  return new MultiSessionRuntime({
+    sessionManager,
+    laravelClient,
+    logger,
+    setInterval: dependencies.setInterval || setInterval,
+    clearInterval: dependencies.clearInterval || clearInterval,
+    syncIntervalMs: dependencies.syncIntervalMs || config.pollIntervalMs,
+  });
+};
+
+const createEngineRuntime = (dependencies = {}) => {
+  if (config.multiSessionEnabled) {
+    if (typeof dependencies.createMultiSessionRuntime === 'function') {
+      return dependencies.createMultiSessionRuntime();
+    }
+
+    return createMultiSessionRuntime(dependencies);
+  }
+
+  if (typeof dependencies.createLegacyRuntime === 'function') {
+    return dependencies.createLegacyRuntime();
+  }
+
+  return createLegacyRuntime();
+};
+
+const shutdownActiveRuntime = async (signal) => {
+  if (!activeRuntime || typeof activeRuntime.shutdown !== 'function') {
+    process.exit(0);
+    return;
+  }
+
+  await activeRuntime.shutdown(signal);
+
+  if (activeRuntime.mode !== 'legacy') {
+    process.exit(0);
+  }
+};
+
+const startEngine = async (dependencies = {}) => {
+  activeRuntime = createEngineRuntime(dependencies);
+
   process.on('SIGINT', () => {
-    void shutdown('SIGINT');
+    void shutdownActiveRuntime('SIGINT');
   });
 
   process.on('SIGTERM', () => {
-    void shutdown('SIGTERM');
+    void shutdownActiveRuntime('SIGTERM');
   });
 
-  await initializeWhatsappClient('startup');
+  return activeRuntime.start();
 };
 
 if (require.main === module) {
@@ -663,5 +738,9 @@ if (require.main === module) {
 
 module.exports = {
   startEngine,
+  startLegacyRuntime,
+  createLegacyRuntime,
+  createMultiSessionRuntime,
+  createEngineRuntime,
   restartWhatsappClient,
 };

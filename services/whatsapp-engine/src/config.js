@@ -34,6 +34,8 @@ const config = {
   pollIntervalMs: toNumber(process.env.ENGINE_POLL_INTERVAL_MS, 5000),
   laravelBaseUrl: process.env.LARAVEL_BASE_URL || 'http://127.0.0.1:8000',
   engineApiToken: process.env.ENGINE_API_TOKEN || '',
+  whatsappEngineInternalToken: process.env.WHATSAPP_ENGINE_INTERNAL_TOKEN || '',
+  multiSessionEnabled: toBoolean(process.env.WHATSAPP_MULTI_SESSION_ENABLED, false),
   pendingMessagesPath: process.env.ENGINE_PENDING_MESSAGES_PATH || '/api/v1/whatsapp/engine/messages/pending',
   queuedMessagesPath: process.env.ENGINE_QUEUED_MESSAGES_PATH || '/api/v1/whatsapp/engine/messages/queued',
   accountStatusPath: process.env.ENGINE_ACCOUNT_STATUS_PATH || '/api/v1/whatsapp/engine/account/status',
@@ -75,7 +77,9 @@ const getPublicConfig = () => ({
   whatsappRestartDelayMs: config.whatsappRestartDelayMs,
   whatsappRestartTimeoutMs: config.whatsappRestartTimeoutMs,
   whatsappMaxRestartAttempts: config.whatsappMaxRestartAttempts,
+  multiSessionEnabled: config.multiSessionEnabled,
   engineApiTokenMasked: maskToken(config.engineApiToken),
+  whatsappEngineInternalTokenMasked: maskToken(config.whatsappEngineInternalToken),
 });
 
 module.exports = {
