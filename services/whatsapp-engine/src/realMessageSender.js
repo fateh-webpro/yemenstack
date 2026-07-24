@@ -1,5 +1,5 @@
 const logger = require('./logger');
-const { markMessageSent, markMessageFailed } = require('./laravelClient');
+const { createLaravelClient } = require('./laravelClient');
 
 const RECOVERABLE_ERROR_PATTERNS = [
   'detached frame',
@@ -54,12 +54,18 @@ const buildFailurePayload = (errorMessage, error, extra = {}) => ({
   ...extra,
 });
 
-const sendQueuedMessage = async (client, message) => {
+const createDefaultMessageClient = () => createLaravelClient({
+  apiToken: require('./config').config.engineApiToken,
+});
+
+const sendQueuedMessage = async (client, message, options = {}) => {
+  const activeLogger = options.logger || logger;
+  const laravelMessageClient = options.laravelMessageClient || createDefaultMessageClient();
   const actualRecipient = normalizeRecipient(message?.recipient);
   const body = message?.body ?? '';
   let sendStage = 'resolve_number';
 
-  logger.info('Sending queued WhatsApp message.', {
+  activeLogger.info('Sending queued WhatsApp message.', {
     service: 'whatsapp-gateway',
     message_id: message?.id,
     recipient: message?.recipient,
@@ -73,13 +79,13 @@ const sendQueuedMessage = async (client, message) => {
       const errorMessage = 'Recipient is not available on WhatsApp or could not be resolved.';
       const failedAt = new Date().toISOString();
 
-      logger.warn('WhatsApp number could not be resolved.', {
+      activeLogger.warn('WhatsApp number could not be resolved.', {
         service: 'whatsapp-gateway',
         message_id: message?.id,
         recipient: actualRecipient,
       });
 
-      await markMessageFailed(message.id, {
+      await laravelMessageClient.markMessageFailed(message.id, {
         error_message: errorMessage,
         response_payload: {
           mode: 'real',
@@ -97,7 +103,7 @@ const sendQueuedMessage = async (client, message) => {
 
     const chatId = `${actualRecipient}@c.us`;
 
-    logger.info('WhatsApp number resolved', {
+    activeLogger.info('WhatsApp number resolved', {
       service: 'whatsapp-gateway',
       message_id: message?.id,
       recipient: actualRecipient,
@@ -125,7 +131,7 @@ const sendQueuedMessage = async (client, message) => {
         result_type: typeof result,
       };
 
-      logger.warn('WhatsApp send returned without message id', {
+      activeLogger.warn('WhatsApp send returned without message id', {
         service: 'whatsapp-gateway',
         message_id: message?.id,
         recipient: actualRecipient,
@@ -133,13 +139,13 @@ const sendQueuedMessage = async (client, message) => {
         send_chat_id: chatId,
       });
 
-      logger.info('Marking message as sent with fallback external id.', {
+      activeLogger.info('Marking message as sent with fallback external id.', {
         service: 'whatsapp-gateway',
         message_id: message?.id,
         external_message_id: externalMessageId,
       });
     } else {
-      logger.info('WhatsApp send returned message id', {
+      activeLogger.info('WhatsApp send returned message id', {
         service: 'whatsapp-gateway',
         message_id: message?.id,
         external_message_id: externalMessageId,
@@ -151,7 +157,7 @@ const sendQueuedMessage = async (client, message) => {
     sendStage = 'mark_sent';
 
     const sentAt = new Date().toISOString();
-    const sentPayload = await markMessageSent(message.id, {
+    const sentPayload = await laravelMessageClient.markMessageSent(message.id, {
       external_message_id: externalMessageId,
       response_payload: responsePayload,
       mode: 'real',
@@ -159,7 +165,7 @@ const sendQueuedMessage = async (client, message) => {
       sent_at: sentAt,
     });
 
-    logger.info('Real WhatsApp send completed for queued message.', {
+    activeLogger.info('Real WhatsApp send completed for queued message.', {
       service: 'whatsapp-gateway',
       message_id: message?.id,
       external_message_id: externalMessageId,
@@ -174,7 +180,7 @@ const sendQueuedMessage = async (client, message) => {
     const recoverable = isRecoverableWhatsappError(error);
 
     if (recoverable && sendStage === 'resolve_number') {
-      logger.warn('Recoverable WhatsApp connection error detected before sendMessage.', {
+      activeLogger.warn('Recoverable WhatsApp connection error detected before sendMessage.', {
         service: 'whatsapp-gateway',
         message_id: message?.id,
         stage: sendStage,
@@ -192,7 +198,7 @@ const sendQueuedMessage = async (client, message) => {
       };
     }
 
-    logger[recoverable ? 'warn' : 'error']('Real WhatsApp send failed for queued message.', {
+    activeLogger[recoverable ? 'warn' : 'error']('Real WhatsApp send failed for queued message.', {
       service: 'whatsapp-gateway',
       message_id: message?.id,
       stage: sendStage,
@@ -201,7 +207,7 @@ const sendQueuedMessage = async (client, message) => {
     });
 
     try {
-      await markMessageFailed(message.id, {
+      await laravelMessageClient.markMessageFailed(message.id, {
         error_message: errorMessage,
         response_payload: buildFailurePayload(errorMessage, error, {
           stage: sendStage,
@@ -213,7 +219,7 @@ const sendQueuedMessage = async (client, message) => {
         failed_at: failedAt,
       });
     } catch (markFailedError) {
-      logger.error('Failed to mark queued message as failed after real send error.', {
+      activeLogger.error('Failed to mark queued message as failed after real send error.', {
         service: 'whatsapp-gateway',
         message_id: message?.id,
         message: markFailedError.message,

@@ -40,6 +40,7 @@ class SessionManager {
         initialize: async () => {},
         destroy: async () => {},
       })),
+      createMessageWorker: dependencies.createMessageWorker || null,
       destroyClient: dependencies.destroyClient || null,
       startPolling: dependencies.startPolling || (() => null),
       stopPolling: dependencies.stopPolling || (() => null),
@@ -75,6 +76,7 @@ class SessionManager {
     if (!context) {
       this.ensureSessionNameNotInUse(normalized.sessionName, normalized.accountId);
       context = this.createContext(normalized);
+      this.attachMessageWorker(context);
       this.sessions.set(key, context);
       this.sessionNames.set(normalized.sessionName, key);
     } else {
@@ -263,6 +265,8 @@ class SessionManager {
     const { preserveDesiredState = false, reason = 'stop' } = options;
 
     try {
+      await this.stopMessageWorker(context, reason);
+
       if (context.pollTimer !== null) {
         try {
           this.dependencies.stopPolling(context);
@@ -347,8 +351,9 @@ class SessionManager {
         context.isReady = true;
         context.actualState = 'running';
         context.lastError = null;
-        context.pollTimer = this.dependencies.startPolling(context) || null;
+        context.pollTimer = this.dependencies.startPolling(context) || context.pollTimer || null;
         this.touchContext(context);
+        void this.startMessageWorker(context);
       },
       onDisconnected: (reason) => {
         const context = getContext();
@@ -366,6 +371,7 @@ class SessionManager {
           context.pollTimer = null;
         }
 
+        void this.stopMessageWorker(context, 'disconnected_event');
         this.touchContext(context);
       },
       onError: (error) => {
@@ -377,6 +383,7 @@ class SessionManager {
         context.isReady = false;
         context.actualState = 'error';
         context.lastError = sanitizeError(error);
+        void this.stopMessageWorker(context, 'error_event');
         this.touchContext(context);
       },
     };
@@ -401,6 +408,7 @@ class SessionManager {
       restartPromise: null,
       pollTimer: null,
       isCycleRunning: false,
+      messageWorker: null,
       lastError: null,
       createdAt: now,
       updatedAt: now,
@@ -424,10 +432,65 @@ class SessionManager {
       generation: context.generation,
       isReady: context.isReady,
       hasClient: Boolean(context.client),
+      hasMessageWorker: Boolean(context.messageWorker),
+      messageWorker: typeof context.messageWorker?.getSnapshot === 'function'
+        ? context.messageWorker.getSnapshot()
+        : null,
       lastError: context.lastError,
       createdAt: context.createdAt,
       updatedAt: context.updatedAt,
     };
+  }
+
+  attachMessageWorker(context) {
+    if (typeof this.dependencies.createMessageWorker !== 'function') {
+      return;
+    }
+
+    context.messageWorker = this.dependencies.createMessageWorker(
+      this.buildSessionDescriptor(context),
+      {
+        getContext: () => context,
+        getWhatsappClient: () => context.client,
+        isReady: () => context.isReady,
+        getGeneration: () => context.generation,
+      },
+    );
+  }
+
+  async startMessageWorker(context) {
+    if (!context.messageWorker || typeof context.messageWorker.start !== 'function') {
+      return null;
+    }
+
+    try {
+      return await context.messageWorker.start();
+    } catch (error) {
+      context.lastError = sanitizeError(error);
+      this.dependencies.logger.error('Failed to start session message worker.', {
+        accountId: context.accountId,
+        message: error.message,
+      });
+      return null;
+    }
+  }
+
+  async stopMessageWorker(context, reason = 'stop') {
+    if (!context.messageWorker || typeof context.messageWorker.stop !== 'function') {
+      return null;
+    }
+
+    try {
+      return await context.messageWorker.stop(reason);
+    } catch (error) {
+      context.lastError = sanitizeError(error);
+      this.dependencies.logger.warn('Failed to stop session message worker cleanly.', {
+        accountId: context.accountId,
+        reason,
+        message: error.message,
+      });
+      return null;
+    }
   }
 
   ensureDescriptorMatchesContext(context, sessionDescriptor) {

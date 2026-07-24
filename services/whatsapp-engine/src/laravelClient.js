@@ -1,19 +1,19 @@
 const { config } = require('./config');
 
-const ensureToken = () => {
-  if (!config.engineApiToken) {
-    const error = new Error('ENGINE_API_TOKEN is not configured.');
-    error.code = 'ENGINE_API_TOKEN_MISSING';
+const ensureToken = (apiToken, errorCode = 'ENGINE_API_TOKEN_MISSING', message = 'ENGINE_API_TOKEN is not configured.') => {
+  if (!apiToken) {
+    const error = new Error(message);
+    error.code = errorCode;
     throw error;
   }
 };
 
 const ensureInternalToken = () => {
-  if (!config.whatsappEngineInternalToken) {
-    const error = new Error('WHATSAPP_ENGINE_INTERNAL_TOKEN is not configured.');
-    error.code = 'WHATSAPP_ENGINE_INTERNAL_TOKEN_MISSING';
-    throw error;
-  }
+  ensureToken(
+    config.whatsappEngineInternalToken,
+    'WHATSAPP_ENGINE_INTERNAL_TOKEN_MISSING',
+    'WHATSAPP_ENGINE_INTERNAL_TOKEN is not configured.',
+  );
 };
 
 const parseJson = async (response) => {
@@ -130,63 +130,94 @@ const requestLaravelJson = async (url, options = {}) => {
   return payload;
 };
 
-const fetchPendingMessages = async (limit = config.fetchLimit) => {
-  ensureToken();
+const createLaravelClient = (options = {}) => {
+  const {
+    apiToken,
+  } = options;
 
-  return requestLaravelJson(buildPendingMessagesUrl(limit), {
-    method: 'GET',
-    token: config.engineApiToken,
-  });
+  const ensureMessageToken = () => {
+    ensureToken(apiToken, 'SESSION_API_TOKEN_MISSING', 'Session API token is not configured.');
+  };
+
+  return {
+    fetchPendingMessages: async (limit = config.fetchLimit) => {
+      ensureMessageToken();
+
+      return requestLaravelJson(buildPendingMessagesUrl(limit), {
+        method: 'GET',
+        token: apiToken,
+      });
+    },
+    fetchQueuedMessages: async (limit = config.fetchLimit) => {
+      ensureMessageToken();
+
+      return requestLaravelJson(buildQueuedMessagesUrl(limit), {
+        method: 'GET',
+        token: apiToken,
+      });
+    },
+    claimMessage: async (messageId) => {
+      ensureMessageToken();
+
+      return requestLaravelJson(buildClaimMessageUrl(messageId), {
+        method: 'POST',
+        token: apiToken,
+        body: {},
+      });
+    },
+    markMessageSent: async (messageId, extra = {}) => {
+      ensureMessageToken();
+      const body = Object.keys(extra).length > 0 ? extra : { mode: 'simulation' };
+
+      return requestLaravelJson(buildMarkSentUrl(messageId), {
+        method: 'POST',
+        token: apiToken,
+        body,
+      });
+    },
+    markMessageFailed: async (messageId, extra = {}) => {
+      ensureMessageToken();
+
+      return requestLaravelJson(buildMarkFailedUrl(messageId), {
+        method: 'POST',
+        token: apiToken,
+        body: extra,
+      });
+    },
+    updateWhatsappAccountStatus: async (status, extra = {}) => {
+      ensureMessageToken();
+
+      return requestLaravelJson(buildAccountStatusUrl(), {
+        method: 'POST',
+        token: apiToken,
+        body: { status, ...extra },
+      });
+    },
+  };
+};
+
+const fetchPendingMessages = async (limit = config.fetchLimit) => {
+  return createLaravelClient({ apiToken: config.engineApiToken }).fetchPendingMessages(limit);
 };
 
 const fetchQueuedMessages = async (limit = config.fetchLimit) => {
-  ensureToken();
-
-  return requestLaravelJson(buildQueuedMessagesUrl(limit), {
-    method: 'GET',
-    token: config.engineApiToken,
-  });
+  return createLaravelClient({ apiToken: config.engineApiToken }).fetchQueuedMessages(limit);
 };
 
 const claimMessage = async (messageId) => {
-  ensureToken();
-
-  return requestLaravelJson(buildClaimMessageUrl(messageId), {
-    method: 'POST',
-    token: config.engineApiToken,
-    body: {},
-  });
+  return createLaravelClient({ apiToken: config.engineApiToken }).claimMessage(messageId);
 };
 
 const markMessageSent = async (messageId, extra = {}) => {
-  ensureToken();
-  const body = Object.keys(extra).length > 0 ? extra : { mode: 'simulation' };
-
-  return requestLaravelJson(buildMarkSentUrl(messageId), {
-    method: 'POST',
-    token: config.engineApiToken,
-    body,
-  });
+  return createLaravelClient({ apiToken: config.engineApiToken }).markMessageSent(messageId, extra);
 };
 
 const markMessageFailed = async (messageId, extra = {}) => {
-  ensureToken();
-
-  return requestLaravelJson(buildMarkFailedUrl(messageId), {
-    method: 'POST',
-    token: config.engineApiToken,
-    body: extra,
-  });
+  return createLaravelClient({ apiToken: config.engineApiToken }).markMessageFailed(messageId, extra);
 };
 
 const updateWhatsappAccountStatus = async (status, extra = {}) => {
-  ensureToken();
-
-  return requestLaravelJson(buildAccountStatusUrl(), {
-    method: 'POST',
-    token: config.engineApiToken,
-    body: { status, ...extra },
-  });
+  return createLaravelClient({ apiToken: config.engineApiToken }).updateWhatsappAccountStatus(status, extra);
 };
 
 const getEngineSessions = async (filters = {}) => {
@@ -238,6 +269,8 @@ module.exports = {
   buildEngineSessionUrl,
   buildEngineSessionStartUrl,
   buildEngineSessionStopUrl,
+  requestLaravelJson,
+  createLaravelClient,
   fetchPendingMessages,
   fetchQueuedMessages,
   claimMessage,
@@ -248,5 +281,4 @@ module.exports = {
   getEngineSession,
   requestEngineSessionStart,
   requestEngineSessionStop,
-  requestLaravelJson,
 };

@@ -1,6 +1,6 @@
 const { config } = require('./config');
 const logger = require('./logger');
-const { fetchPendingMessages, claimMessage } = require('./laravelClient');
+const { createLaravelClient } = require('./laravelClient');
 
 const getBodyPreview = (body) => {
   if (!body) {
@@ -8,6 +8,55 @@ const getBodyPreview = (body) => {
   }
 
   return body.length > 80 ? `${body.slice(0, 80)}...` : body;
+};
+
+const pollPendingMessagesWithClient = async (laravelMessageClient, options = {}) => {
+  const activeLogger = options.logger || logger;
+  const limit = options.limit || config.fetchLimit;
+  const service = options.service || 'whatsapp-gateway';
+
+  const payload = await laravelMessageClient.fetchPendingMessages(limit);
+  const messages = Array.isArray(payload?.data) ? payload.data : [];
+
+  activeLogger.info('Pending messages fetched', {
+    service,
+    count: messages.length,
+    limit: payload?.meta?.limit ?? limit,
+  });
+
+  for (const message of messages) {
+    activeLogger.info('Pending message', {
+      service,
+      id: message.id,
+      recipient: message.recipient,
+      status: message.status,
+      message_type: message.message_type,
+      body_preview: getBodyPreview(message.body),
+    });
+
+    try {
+      const claimPayload = await laravelMessageClient.claimMessage(message.id);
+      const claimData = claimPayload?.data ?? {};
+
+      activeLogger.info('Message claimed', {
+        service,
+        id: claimData.message_id ?? message.id,
+        status: claimData.status,
+        attempt_id: claimData.attempt_id,
+        attempt_number: claimData.attempt_number,
+      });
+    } catch (error) {
+      activeLogger.error('Message claim failed.', {
+        service,
+        id: message.id,
+        code: error.code || 'unknown_error',
+        status: error.status || null,
+        message: error.message,
+      });
+    }
+  }
+
+  return payload;
 };
 
 const pollPendingMessages = async () => {
@@ -20,48 +69,14 @@ const pollPendingMessages = async () => {
     return { success: false, skipped: true, reason: 'missing_token' };
   }
 
-  const payload = await fetchPendingMessages(config.fetchLimit);
-  const messages = Array.isArray(payload?.data) ? payload.data : [];
-
-  logger.info('Pending messages fetched', {
-    service: 'whatsapp-gateway',
-    count: messages.length,
-    limit: payload?.meta?.limit ?? config.fetchLimit,
-  });
-
-  for (const message of messages) {
-    logger.info('Pending message', {
+  return pollPendingMessagesWithClient(
+    createLaravelClient({ apiToken: config.engineApiToken }),
+    {
+      logger,
+      limit: config.fetchLimit,
       service: 'whatsapp-gateway',
-      id: message.id,
-      recipient: message.recipient,
-      status: message.status,
-      message_type: message.message_type,
-      body_preview: getBodyPreview(message.body),
-    });
-
-    try {
-      const claimPayload = await claimMessage(message.id);
-      const claimData = claimPayload?.data ?? {};
-
-      logger.info('Message claimed', {
-        service: 'whatsapp-gateway',
-        id: claimData.message_id ?? message.id,
-        status: claimData.status,
-        attempt_id: claimData.attempt_id,
-        attempt_number: claimData.attempt_number,
-      });
-    } catch (error) {
-      logger.error('Message claim failed.', {
-        service: 'whatsapp-gateway',
-        id: message.id,
-        code: error.code || 'unknown_error',
-        status: error.status || null,
-        message: error.message,
-      });
-    }
-  }
-
-  return payload;
+    },
+  );
 };
 
 if (require.main === module) {
@@ -79,4 +94,5 @@ if (require.main === module) {
 
 module.exports = {
   pollPendingMessages,
+  pollPendingMessagesWithClient,
 };

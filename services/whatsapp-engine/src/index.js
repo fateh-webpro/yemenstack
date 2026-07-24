@@ -4,10 +4,19 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const { config, getPublicConfig } = require('./config');
 const logger = require('./logger');
 const { pollPendingMessages } = require('./pendingMessages');
-const { fetchQueuedMessages, getEngineSession, getEngineSessions, requestEngineSessionStart, requestEngineSessionStop, updateWhatsappAccountStatus } = require('./laravelClient');
+const {
+  createLaravelClient,
+  fetchQueuedMessages,
+  getEngineSession,
+  getEngineSessions,
+  requestEngineSessionStart,
+  requestEngineSessionStop,
+  updateWhatsappAccountStatus,
+} = require('./laravelClient');
 const { normalizeRecipient, isRecoverableWhatsappError, sendQueuedMessage } = require('./realMessageSender');
 const { SessionManager } = require('./sessionManager');
 const { MultiSessionRuntime } = require('./multiSessionRuntime');
+const { SessionMessageWorker } = require('./sessionMessageWorker');
 const { createManagedWhatsappClient } = require('./createManagedWhatsappClient');
 
 const CLIENT_RESTART_WINDOW_MS = 5 * 60 * 1000;
@@ -639,7 +648,6 @@ const startLegacyRuntime = async () => {
 
   await updateStatus('connecting');
 
-
   await initializeWhatsappClient('startup');
 };
 
@@ -651,6 +659,32 @@ const createLegacyRuntime = () => {
   };
 };
 
+const buildSessionMessageWorkerFactory = (dependencies = {}) => {
+  if (typeof dependencies.createMessageWorker === 'function') {
+    return dependencies.createMessageWorker;
+  }
+
+  if (typeof dependencies.resolveSessionApiToken !== 'function') {
+    return null;
+  }
+
+  return (descriptor, helpers) => new SessionMessageWorker({
+    accountId: descriptor.accountId,
+    sessionName: descriptor.sessionName,
+    getWhatsappClient: helpers.getWhatsappClient,
+    isReady: helpers.isReady,
+    resolveApiToken: () => dependencies.resolveSessionApiToken(descriptor.accountId, descriptor),
+    createLaravelClient: dependencies.createLaravelClient || createLaravelClient,
+    logger,
+    pollIntervalMs: dependencies.messagePollIntervalMs || config.pollIntervalMs,
+    fetchLimit: dependencies.fetchLimit || config.fetchLimit,
+    enableRealWhatsappSend: dependencies.enableRealWhatsappSend ?? config.enableRealWhatsappSend,
+    whatsappTestRecipient: dependencies.whatsappTestRecipient ?? config.whatsappTestRecipient,
+    setInterval: dependencies.setInterval || setInterval,
+    clearInterval: dependencies.clearInterval || clearInterval,
+  });
+};
+
 const createMultiSessionRuntime = (dependencies = {}) => {
   if (dependencies.runtime) {
     return dependencies.runtime;
@@ -658,6 +692,7 @@ const createMultiSessionRuntime = (dependencies = {}) => {
 
   const sessionManager = dependencies.sessionManager || new SessionManager({
     createClient: createManagedWhatsappClient,
+    createMessageWorker: buildSessionMessageWorkerFactory(dependencies),
     logger,
   });
 
@@ -742,5 +777,6 @@ module.exports = {
   createLegacyRuntime,
   createMultiSessionRuntime,
   createEngineRuntime,
+  buildSessionMessageWorkerFactory,
   restartWhatsappClient,
 };
