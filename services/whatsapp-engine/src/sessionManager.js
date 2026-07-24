@@ -1,3 +1,5 @@
+const { config } = require('./config');
+
 const DEFAULT_STATE = 'stopped';
 const SESSION_NAME_PATTERN = /^wa_[a-z0-9_]+$/;
 
@@ -47,12 +49,16 @@ class SessionManager {
       createClient: dependencies.createClient || (async () => ({
         initialize: async () => {},
         destroy: async () => {},
+        sendMessage: async () => {},
       })),
       createMessageWorker: dependencies.createMessageWorker || null,
       createStatusClient: dependencies.createStatusClient || null,
       destroyClient: dependencies.destroyClient || null,
       startPolling: dependencies.startPolling || (() => null),
       stopPolling: dependencies.stopPolling || (() => null),
+      setTimeout: dependencies.setTimeout || global.setTimeout,
+      clearTimeout: dependencies.clearTimeout || global.clearTimeout,
+      readinessTimeoutMs: dependencies.readinessTimeoutMs || config.whatsappRestartTimeoutMs,
       logger: dependencies.logger || {
         info: () => {},
         warn: () => {},
@@ -122,6 +128,7 @@ class SessionManager {
       context.client = client;
       this.touchContext(context);
       await this.reportStatus(context.accountId, generation, 'connecting');
+      this.armReadinessTimeout(context, generation);
 
       if (client && typeof client.initialize === 'function') {
         await client.initialize();
@@ -141,6 +148,7 @@ class SessionManager {
     })().catch(async (error) => {
       context.lastError = sanitizeError(error);
       context.actualState = 'error';
+      this.cancelReadinessTimeout(context);
       this.touchContext(context);
 
       await this.reportStatus(context.accountId, generation, 'error', {
@@ -281,6 +289,7 @@ class SessionManager {
     const { preserveDesiredState = false, reason = 'stop' } = options;
 
     try {
+      this.cancelReadinessTimeout(context);
       await this.stopMessageWorker(context, reason);
 
       if (context.pollTimer !== null) {
@@ -376,6 +385,7 @@ class SessionManager {
           return;
         }
 
+        this.cancelReadinessTimeout(context);
         context.isReady = true;
         context.actualState = 'running';
         context.lastError = null;
@@ -397,6 +407,7 @@ class SessionManager {
           return;
         }
 
+        this.cancelReadinessTimeout(context);
         context.isReady = false;
         context.actualState = 'stopped';
         context.lastError = reason ? sanitizeError(new Error(String(reason))) : context.lastError;
@@ -425,6 +436,7 @@ class SessionManager {
           return;
         }
 
+        this.cancelReadinessTimeout(context);
         context.isReady = false;
         context.actualState = 'error';
         context.lastError = sanitizeError(error);
@@ -441,6 +453,35 @@ class SessionManager {
           error_code: error?.code || null,
           error_message: error?.message || String(error),
         });
+      },
+      onStateChanged: (state) => {
+        const context = getContext();
+        if (!context || !isCurrent()) {
+          return;
+        }
+
+        this.dependencies.logger.info('Managed session lifecycle state updated.', {
+          accountId: context.accountId,
+          sessionName: context.sessionName,
+          generation,
+          state: sanitizeReason(state) || 'unknown',
+        });
+        this.touchContext(context);
+      },
+      onLoadingScreen: (percent, message) => {
+        const context = getContext();
+        if (!context || !isCurrent()) {
+          return;
+        }
+
+        this.dependencies.logger.info('Managed session loading screen update.', {
+          accountId: context.accountId,
+          sessionName: context.sessionName,
+          generation,
+          percent: Number.isFinite(percent) ? percent : null,
+          message: sanitizeReason(message),
+        });
+        this.touchContext(context);
       },
     };
   }
@@ -464,6 +505,9 @@ class SessionManager {
       restartPromise: null,
       pollTimer: null,
       isCycleRunning: false,
+      readinessTimer: null,
+      waitingForReady: false,
+      readinessDeadlineAt: null,
       messageWorker: null,
       statusClient: null,
       lastError: null,
@@ -477,6 +521,7 @@ class SessionManager {
       accountId: context.accountId,
       sessionName: context.sessionName,
       desiredState: context.desiredState,
+      generation: context.generation,
     };
   }
 
@@ -488,6 +533,8 @@ class SessionManager {
       desiredState: context.desiredState,
       generation: context.generation,
       isReady: context.isReady,
+      waitingForReady: context.waitingForReady,
+      readinessDeadlineAt: context.readinessDeadlineAt,
       hasClient: Boolean(context.client),
       hasMessageWorker: Boolean(context.messageWorker),
       hasStatusClient: Boolean(context.statusClient),
@@ -522,6 +569,79 @@ class SessionManager {
         getGeneration: () => context.generation,
       },
     );
+  }
+
+  armReadinessTimeout(context, generation) {
+    this.cancelReadinessTimeout(context);
+
+    const readinessTimeoutMs = this.dependencies.readinessTimeoutMs;
+
+    if (!Number.isInteger(readinessTimeoutMs) || readinessTimeoutMs <= 0) {
+      return;
+    }
+
+    context.waitingForReady = true;
+    context.readinessDeadlineAt = new Date(Date.now() + readinessTimeoutMs).toISOString();
+    context.readinessTimer = this.dependencies.setTimeout(() => {
+      void this.handleReadinessTimeout(context.accountId, generation);
+    }, readinessTimeoutMs);
+    this.touchContext(context);
+  }
+
+  cancelReadinessTimeout(context) {
+    if (context.readinessTimer) {
+      this.dependencies.clearTimeout(context.readinessTimer);
+      context.readinessTimer = null;
+    }
+
+    context.waitingForReady = false;
+    context.readinessDeadlineAt = null;
+  }
+
+  async handleReadinessTimeout(accountId, generation) {
+    const context = this.get(accountId);
+
+    if (!context || !this.isCurrentGeneration(accountId, generation) || !context.waitingForReady || context.isReady) {
+      return false;
+    }
+
+    this.cancelReadinessTimeout(context);
+    context.actualState = 'error';
+    context.isReady = false;
+    context.lastError = sanitizeError(Object.assign(
+      new Error('Managed session readiness timeout after authentication.'),
+      { code: 'MANAGED_SESSION_READY_TIMEOUT' },
+    ));
+
+    try {
+      this.dependencies.stopPolling(context);
+    } finally {
+      context.pollTimer = null;
+    }
+
+    await this.stopMessageWorker(context, 'readiness_timeout');
+
+    this.dependencies.logger.error('Managed session readiness timeout reached before ready.', {
+      accountId: context.accountId,
+      sessionName: context.sessionName,
+      generation,
+      timeout_ms: this.dependencies.readinessTimeoutMs,
+    });
+
+    await this.reportStatus(accountId, generation, 'error', {
+      error_code: 'MANAGED_SESSION_READY_TIMEOUT',
+      error_message: 'Managed session readiness timeout after authentication.',
+    });
+
+    const activeClient = context.client;
+    context.client = null;
+
+    if (activeClient) {
+      await this.destroyClient(activeClient, context, 'readiness_timeout');
+    }
+
+    this.touchContext(context);
+    return true;
   }
 
   async startMessageWorker(context) {
