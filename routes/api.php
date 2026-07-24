@@ -3,10 +3,14 @@
 use App\Http\Controllers\Api\V1\MessageController;
 use App\Http\Controllers\Api\V1\Whatsapp\EngineClaimMessageController;
 use App\Http\Controllers\Api\V1\Whatsapp\EngineHealthController;
+use App\Http\Controllers\Api\V1\Whatsapp\EngineListSessionsController;
 use App\Http\Controllers\Api\V1\Whatsapp\EngineMarkMessageFailedController;
 use App\Http\Controllers\Api\V1\Whatsapp\EngineMarkMessageSentController;
 use App\Http\Controllers\Api\V1\Whatsapp\EnginePendingMessageController;
 use App\Http\Controllers\Api\V1\Whatsapp\EngineQueuedMessageController;
+use App\Http\Controllers\Api\V1\Whatsapp\EngineShowSessionController;
+use App\Http\Controllers\Api\V1\Whatsapp\EngineStartSessionController;
+use App\Http\Controllers\Api\V1\Whatsapp\EngineStopSessionController;
 use App\Http\Controllers\Api\V1\Whatsapp\EngineWhatsappAccountStatusController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +18,10 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1/whatsapp/engine')->middleware('whatsapp.engine')->group(function (): void {
     Route::get('/health', EngineHealthController::class);
+    Route::get('/sessions', EngineListSessionsController::class);
+    Route::get('/sessions/{whatsappAccount}', EngineShowSessionController::class);
+    Route::post('/sessions/{whatsappAccount}/start', EngineStartSessionController::class);
+    Route::post('/sessions/{whatsappAccount}/stop', EngineStopSessionController::class);
 });
 
 Route::prefix('v1')->middleware('api.credential')->group(function (): void {

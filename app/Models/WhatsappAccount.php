@@ -19,11 +19,17 @@ class WhatsappAccount extends Model
     public const STATUS_LOGGED_OUT = 'logged_out';
     public const STATUS_ERROR = 'error';
 
+    public const SESSION_DESIRED_RUNNING = 'running';
+    public const SESSION_DESIRED_STOPPED = 'stopped';
+
     protected $fillable = [
         'client_id',
         'name',
         'phone_number',
         'session_name',
+        'session_desired_state',
+        'start_requested_at',
+        'stop_requested_at',
         'status',
         'last_seen_at',
         'qr_expires_at',
@@ -32,6 +38,8 @@ class WhatsappAccount extends Model
     ];
 
     protected $casts = [
+        'start_requested_at' => 'datetime',
+        'stop_requested_at' => 'datetime',
         'last_seen_at' => 'datetime',
         'qr_expires_at' => 'datetime',
         'is_active' => 'boolean',
@@ -42,6 +50,10 @@ class WhatsappAccount extends Model
         static::creating(function (self $whatsappAccount): void {
             if (blank($whatsappAccount->session_name)) {
                 $whatsappAccount->session_name = self::generateSessionName();
+            }
+
+            if (blank($whatsappAccount->session_desired_state)) {
+                $whatsappAccount->session_desired_state = self::SESSION_DESIRED_STOPPED;
             }
         });
     }
@@ -68,6 +80,14 @@ class WhatsappAccount extends Model
         ];
     }
 
+    public static function desiredStateLabels(): array
+    {
+        return [
+            self::SESSION_DESIRED_RUNNING => 'مطلوب تشغيلها',
+            self::SESSION_DESIRED_STOPPED => 'متوقفة',
+        ];
+    }
+
     public static function generateSessionName(): string
     {
         do {
@@ -75,6 +95,41 @@ class WhatsappAccount extends Model
         } while (self::query()->where('session_name', $sessionName)->exists());
 
         return $sessionName;
+    }
+
+    public function requestSessionStart(): void
+    {
+        if ($this->wantsSessionRunning()) {
+            return;
+        }
+
+        $this->forceFill([
+            'session_desired_state' => self::SESSION_DESIRED_RUNNING,
+            'start_requested_at' => now(),
+            'stop_requested_at' => null,
+        ])->saveQuietly();
+    }
+
+    public function requestSessionStop(): void
+    {
+        if ($this->wantsSessionStopped()) {
+            return;
+        }
+
+        $this->forceFill([
+            'session_desired_state' => self::SESSION_DESIRED_STOPPED,
+            'stop_requested_at' => now(),
+        ])->saveQuietly();
+    }
+
+    public function wantsSessionRunning(): bool
+    {
+        return $this->session_desired_state === self::SESSION_DESIRED_RUNNING;
+    }
+
+    public function wantsSessionStopped(): bool
+    {
+        return $this->session_desired_state === self::SESSION_DESIRED_STOPPED;
     }
 
     public function client(): BelongsTo

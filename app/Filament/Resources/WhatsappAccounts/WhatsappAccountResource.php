@@ -101,8 +101,12 @@ class WhatsappAccountResource extends Resource
             TextEntry::make('name')->label('اسم الرقم'),
             TextEntry::make('phone_number')->label('رقم الهاتف')->placeholder('-'),
             TextEntry::make('session_name')->label('اسم الجلسة'),
+            TextEntry::make('session_desired_state')
+                ->label('حالة التشغيل المطلوبة')
+                ->badge()
+                ->formatStateUsing(fn (?string $state): string => self::desiredStateLabel($state)),
             TextEntry::make('status')
-                ->label('الحالة')
+                ->label('الحالة الفعلية')
                 ->badge()
                 ->formatStateUsing(fn (string $state): string => self::statusLabel($state)),
             IconEntry::make('is_active')->label('نشط')->boolean(),
@@ -135,8 +139,13 @@ class WhatsappAccountResource extends Resource
                     ->searchable()
                     ->toggleable()
                     ->copyable(),
+                TextColumn::make('session_desired_state')
+                    ->label('حالة التشغيل المطلوبة')
+                    ->badge()
+                    ->formatStateUsing(fn (?string $state): string => self::desiredStateLabel($state))
+                    ->sortable(),
                 TextColumn::make('status')
-                    ->label('الحالة')
+                    ->label('الحالة الفعلية')
                     ->badge()
                     ->formatStateUsing(fn (string $state): string => self::statusLabel($state))
                     ->sortable(),
@@ -159,8 +168,11 @@ class WhatsappAccountResource extends Resource
                 SelectFilter::make('client_id')
                     ->label('العميل')
                     ->relationship('client', 'name'),
+                SelectFilter::make('session_desired_state')
+                    ->label('حالة التشغيل المطلوبة')
+                    ->options(WhatsappAccount::desiredStateLabels()),
                 SelectFilter::make('status')
-                    ->label('الحالة')
+                    ->label('الحالة الفعلية')
                     ->options(WhatsappAccount::statusLabels()),
                 TernaryFilter::make('is_active')->label('نشط'),
             ])
@@ -194,6 +206,11 @@ class WhatsappAccountResource extends Resource
     protected static function statusLabel(?string $state): string
     {
         return WhatsappAccount::statusLabels()[$state] ?? ($state ?: '-');
+    }
+
+    protected static function desiredStateLabel(?string $state): string
+    {
+        return WhatsappAccount::desiredStateLabels()[$state] ?? ($state ?: '-');
     }
 
     protected static function generatePairingTokenAction(): Action
