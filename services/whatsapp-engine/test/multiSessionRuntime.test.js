@@ -21,11 +21,11 @@ const createHarness = (sessionsFactory, options = {}) => {
       active.set(String(descriptor.accountId), {
         accountId: descriptor.accountId,
         sessionName: descriptor.sessionName,
-        state: 'running',
+        state: options.defaultStartedState || 'starting',
         desiredState: 'running',
         generation: 1,
         isReady: false,
-        hasClient: true,
+        hasClient: options.defaultStartedHasClient !== false,
         hasMessageWorker: true,
         messageWorker: {
           isRunning: true,
@@ -44,7 +44,7 @@ const createHarness = (sessionsFactory, options = {}) => {
       stopped.push(String(accountId));
       const current = active.get(String(accountId));
       if (current) {
-        current.state = 'stopped';
+        current.state = options.stopLeavesState || 'stopped';
         current.desiredState = 'stopped';
         current.hasClient = false;
       }
@@ -126,10 +126,10 @@ test('sync starts running sessions and stops stopped sessions', async () => {
   harness.active.set('2', {
     accountId: 2,
     sessionName: 'wa_two',
-    state: 'running',
+    state: 'ready',
     desiredState: 'running',
     generation: 1,
-    isReady: false,
+    isReady: true,
     hasClient: true,
     hasMessageWorker: true,
     messageWorker: null,
@@ -165,6 +165,61 @@ test('sync counts already managed running sessions without logging a new start e
   assert.equal(summary.alreadyManagedCount, 1);
 });
 
+test('sync does not start a new client while an existing session is stopping', async () => {
+  const harness = createHarness(async () => [
+    { id: 7, session_name: 'wa_seven', session_desired_state: 'running' },
+  ]);
+
+  harness.active.set('7', {
+    accountId: 7,
+    sessionName: 'wa_seven',
+    state: 'stopping',
+    desiredState: 'running',
+    generation: 3,
+    isReady: false,
+    hasClient: true,
+    hasMessageWorker: true,
+    messageWorker: null,
+    lastError: null,
+    createdAt: 't1',
+    updatedAt: 't1',
+  });
+
+  await harness.runtime.syncSessions();
+
+  assert.equal(harness.started.length, 0);
+  assert.equal(harness.runtime.getSnapshot().lastSyncSummary.alreadyManagedCount, 1);
+});
+
+test('sync does not repeat stop calls or stop logging once a session is already stopped', async () => {
+  const harness = createHarness(async () => [
+    { id: 8, session_name: 'wa_eight', session_desired_state: 'stopped' },
+  ]);
+
+  harness.active.set('8', {
+    accountId: 8,
+    sessionName: 'wa_eight',
+    state: 'ready',
+    desiredState: 'running',
+    generation: 1,
+    isReady: true,
+    hasClient: true,
+    hasMessageWorker: true,
+    messageWorker: null,
+    lastError: null,
+    createdAt: 't1',
+    updatedAt: 't1',
+  });
+
+  await harness.runtime.syncSessions();
+  await harness.runtime.syncSessions();
+
+  const stopLogs = harness.loggerCalls.filter((entry) => entry.level === 'info' && entry.args[0] === 'Stopping managed session from sync.');
+
+  assert.deepEqual(harness.stopped, ['8']);
+  assert.equal(stopLogs.length, 1);
+});
+
 test('allowlist filters sessions down to the requested account ids only', async () => {
   const harness = createHarness(async () => [
     { id: 5, session_name: 'wa_five', session_desired_state: 'running' },
@@ -188,10 +243,10 @@ test('sync removes sessions that no longer exist in Laravel', async () => {
   harness.active.set('3', {
     accountId: 3,
     sessionName: 'wa_three',
-    state: 'running',
+    state: 'ready',
     desiredState: 'running',
     generation: 1,
-    isReady: false,
+    isReady: true,
     hasClient: true,
     hasMessageWorker: true,
     messageWorker: null,
@@ -221,7 +276,7 @@ test('session sync errors are isolated and do not stop other sessions', async ()
     harness.active.set(String(descriptor.accountId), {
       accountId: descriptor.accountId,
       sessionName: descriptor.sessionName,
-      state: 'running',
+      state: 'starting',
       desiredState: 'running',
       generation: 1,
       isReady: false,

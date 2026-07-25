@@ -106,17 +106,29 @@ class MultiSessionRuntime {
           }
 
           knownAccountIds.add(String(accountId));
+          const snapshot = this.getManagedSnapshot(accountId);
 
           try {
             if (session.session_desired_state === 'running') {
-              const isAlreadyManaged = this.sessionManager.has(accountId);
-
-              if (!isAlreadyManaged) {
+              if (!snapshot) {
                 this.logger.info('Starting managed session from sync.', {
                   runtime: this.mode,
                   accountId,
                   sessionName: session.session_name,
                 });
+
+                await this.sessionManager.start({
+                  accountId,
+                  sessionName: session.session_name,
+                  desiredState: 'running',
+                });
+                createdCount += 1;
+                continue;
+              }
+
+              if (this.isSessionStartBlocked(snapshot)) {
+                alreadyManagedCount += 1;
+                continue;
               }
 
               await this.sessionManager.start({
@@ -124,17 +136,15 @@ class MultiSessionRuntime {
                 sessionName: session.session_name,
                 desiredState: 'running',
               });
-
-              if (isAlreadyManaged) {
-                alreadyManagedCount += 1;
-              } else {
-                createdCount += 1;
-              }
-
+              alreadyManagedCount += 1;
               continue;
             }
 
-            if (session.session_desired_state === 'stopped' && this.sessionManager.has(accountId)) {
+            if (session.session_desired_state === 'stopped' && snapshot) {
+              if (this.isSessionStoppingOrStopped(snapshot)) {
+                continue;
+              }
+
               this.logger.info('Stopping managed session from sync.', {
                 runtime: this.mode,
                 accountId,
@@ -280,6 +290,30 @@ class MultiSessionRuntime {
       isSyncRunning: Boolean(this.currentSyncPromise),
       isShuttingDown: this.isShuttingDown,
     };
+  }
+
+  getManagedSnapshot(accountId) {
+    return this.sessionManager.getAllSnapshots().find((snapshot) => String(snapshot.accountId) === String(accountId)) || null;
+  }
+
+  isSessionStartBlocked(snapshot) {
+    if (!snapshot) {
+      return false;
+    }
+
+    if (snapshot.hasClient) {
+      return true;
+    }
+
+    return ['starting', 'waiting_for_qr', 'authenticated', 'ready', 'running', 'stopping', 'restarting'].includes(snapshot.state);
+  }
+
+  isSessionStoppingOrStopped(snapshot) {
+    if (!snapshot) {
+      return false;
+    }
+
+    return ['stopping', 'stopped'].includes(snapshot.state);
   }
 
   touch() {

@@ -15,6 +15,19 @@ const createHarness = (options = {}) => {
   const callbacksByAccount = new Map();
   const clientsByAccount = new Map();
   const loggerCalls = [];
+  const deferredDestroyResolvers = new Map();
+  const destroyStartedAccounts = new Set();
+  const destroyWaiters = new Map();
+
+  const markDestroyStarted = (accountId) => {
+    const key = String(accountId);
+    destroyStartedAccounts.add(key);
+
+    if (destroyWaiters.has(key)) {
+      destroyWaiters.get(key)();
+      destroyWaiters.delete(key);
+    }
+  };
 
   const logger = {
     info: (...args) => loggerCalls.push({ level: 'info', args }),
@@ -42,10 +55,20 @@ const createHarness = (options = {}) => {
         },
         async destroy() {
           counters.destroy += 1;
+          markDestroyStarted(descriptor.accountId);
+
+          if (options.slowDestroyFor === descriptor.accountId) {
+            await new Promise((resolve) => {
+              deferredDestroyResolvers.set(String(descriptor.accountId), resolve);
+            });
+          }
+
           client.destroyed = true;
 
           if (options.failDestroyFor === descriptor.accountId) {
-            throw new Error(`Destroy failed for ${descriptor.accountId}`);
+            const error = new Error(`Destroy failed for ${descriptor.accountId}`);
+            error.code = 'DESTROY_FAILED';
+            throw error;
           }
         },
       };
@@ -78,6 +101,24 @@ const createHarness = (options = {}) => {
     loggerCalls,
     callbacksByAccount,
     clientsByAccount,
+    async waitForDestroy(accountId) {
+      const key = String(accountId);
+
+      if (destroyStartedAccounts.has(key)) {
+        return;
+      }
+
+      await new Promise((resolve) => {
+        destroyWaiters.set(key, resolve);
+      });
+    },
+    resolveDestroy(accountId) {
+      const resolver = deferredDestroyResolvers.get(String(accountId));
+      if (resolver) {
+        deferredDestroyResolvers.delete(String(accountId));
+        resolver();
+      }
+    },
     emit(accountId, eventName, payload) {
       const callbacks = callbacksByAccount.get(String(accountId));
       assert.ok(callbacks, `Callbacks for account ${accountId} were not registered.`);
@@ -108,7 +149,7 @@ test('start creates one session context and initializes the client once', async 
   assert.equal(manager.list().length, 1);
   assert.equal(snapshot.accountId, 101);
   assert.equal(snapshot.sessionName, 'wa_session_101');
-  assert.equal(snapshot.state, 'running');
+  assert.equal(snapshot.state, 'starting');
   assert.equal(snapshot.hasClient, true);
 });
 
@@ -201,7 +242,7 @@ test('different sessions run independently', async () => {
   harness.emit(108, 'onDisconnected', 'network');
 
   assert.equal(manager.getSnapshot(107).isReady, true);
-  assert.equal(manager.getSnapshot(107).state, 'running');
+  assert.equal(manager.getSnapshot(107).state, 'ready');
   assert.equal(manager.getSnapshot(108).isReady, false);
   assert.equal(manager.getSnapshot(108).state, 'stopped');
 });
@@ -216,7 +257,7 @@ test('session errors are isolated and do not stop other sessions', async () => {
   harness.emit(109, 'onError', new Error('Session 109 failed'));
 
   assert.equal(manager.getSnapshot(109).state, 'error');
-  assert.equal(manager.getSnapshot(110).state, 'running');
+  assert.equal(manager.getSnapshot(110).state, 'starting');
 });
 
 test('ready event starts polling for only the matching session', async () => {
@@ -249,72 +290,130 @@ test('stop destroys the client and stops polling', async () => {
   assert.equal(snapshot.hasClient, false);
 });
 
-test('stop is idempotent', async () => {
-  const harness = createHarness();
+test('stop is idempotent and returns the same final result while destroy is pending', async () => {
+  const harness = createHarness({ slowDestroyFor: 114 });
   const { manager, counters } = harness;
 
   await manager.start({ accountId: 114, sessionName: 'wa_session_114', desiredState: 'running' });
-  await manager.stop(114);
-  await manager.stop(114);
+
+  const firstStop = manager.stop(114);
+  const secondStop = manager.stop(114);
+
+  await harness.waitForDestroy(114);
+
+  assert.equal(manager.getSnapshot(114).state, 'stopping');
+
+  harness.resolveDestroy(114);
+  const [firstResult, secondResult] = await Promise.all([firstStop, secondStop]);
 
   assert.equal(counters.externalDestroy, 1);
+  assert.equal(firstResult.state, 'stopped');
+  assert.equal(secondResult.state, 'stopped');
   assert.equal(manager.getSnapshot(114).state, 'stopped');
+});
+
+test('start does not create a new client while stop is still waiting for destroy', async () => {
+  const harness = createHarness({ slowDestroyFor: 115 });
+  const { manager, counters } = harness;
+
+  await manager.start({ accountId: 115, sessionName: 'wa_session_115', desiredState: 'running' });
+  const stopPromise = manager.stop(115);
+
+  await harness.waitForDestroy(115);
+
+  const blockedStart = manager.start({ accountId: 115, sessionName: 'wa_session_115', desiredState: 'running' });
+
+  assert.equal(counters.createClient, 1);
+  assert.equal(manager.getSnapshot(115).state, 'stopping');
+
+  harness.resolveDestroy(115);
+  await stopPromise;
+  await blockedStart;
+
+  assert.equal(counters.createClient, 1);
+
+  await manager.start({ accountId: 115, sessionName: 'wa_session_115', desiredState: 'running' });
+  assert.equal(counters.createClient, 2);
 });
 
 test('restart increases generation and ignores old callbacks', async () => {
   const harness = createHarness();
   const { manager } = harness;
 
-  await manager.start({ accountId: 115, sessionName: 'wa_session_115', desiredState: 'running' });
-  const firstGeneration = manager.getSnapshot(115).generation;
-  const oldCallbacks = harness.callbacksByAccount.get('115');
+  await manager.start({ accountId: 116, sessionName: 'wa_session_116', desiredState: 'running' });
+  const firstGeneration = manager.getSnapshot(116).generation;
+  const oldCallbacks = harness.callbacksByAccount.get('116');
 
-  await manager.restart(115, 'recoverable_error');
-  const secondGeneration = manager.getSnapshot(115).generation;
+  await manager.restart(116, 'recoverable_error');
+  const secondGeneration = manager.getSnapshot(116).generation;
 
   assert.equal(secondGeneration > firstGeneration, true);
 
   oldCallbacks.onError(new Error('Old generation error'));
 
-  assert.equal(manager.getSnapshot(115).state, 'running');
-  assert.equal(manager.getSnapshot(115).lastError, null);
+  assert.equal(manager.getSnapshot(116).state, 'starting');
+  assert.equal(manager.getSnapshot(116).lastError, null);
+});
+
+test('restart waits for stop to finish before creating a new client', async () => {
+  const harness = createHarness({ slowDestroyFor: 117 });
+  const { manager, counters } = harness;
+
+  await manager.start({ accountId: 117, sessionName: 'wa_session_117', desiredState: 'running' });
+
+  const restartPromise = manager.restart(117, 'recoverable_error');
+  await harness.waitForDestroy(117);
+
+  assert.equal(manager.getSnapshot(117).state, 'restarting');
+  assert.equal(counters.createClient, 1);
+
+  harness.resolveDestroy(117);
+  await restartPromise;
+
+  assert.equal(counters.createClient, 2);
+  assert.equal(manager.getSnapshot(117).generation, 2);
 });
 
 test('restart is idempotent while already restarting', async () => {
   const harness = createHarness({
     onInitialize: async ({ descriptor, callbacks }) => {
-      if (descriptor.accountId === 116) {
+      if (descriptor.accountId === 118) {
         callbacks.onReady();
       }
     },
   });
   const { manager, counters } = harness;
 
-  await manager.start({ accountId: 116, sessionName: 'wa_session_116', desiredState: 'running' });
+  await manager.start({ accountId: 118, sessionName: 'wa_session_118', desiredState: 'running' });
 
-  const firstRestartPromise = manager.restart(116, 'first');
-  const secondRestartPromise = manager.restart(116, 'second');
+  const firstRestartPromise = manager.restart(118, 'first');
+  const secondRestartPromise = manager.restart(118, 'second');
 
-  assert.equal(manager.get(116).isRestarting, true);
+  assert.equal(manager.get(118).isRestarting, true);
 
   const [firstResult, secondResult] = await Promise.all([firstRestartPromise, secondRestartPromise]);
 
   assert.equal(counters.createClient, 2);
-  assert.equal(firstResult.accountId, 116);
-  assert.equal(secondResult.accountId, 116);
-  assert.equal(manager.getSnapshot(116).generation, 2);
-  assert.equal(manager.get(116).isRestarting, false);
+  assert.equal(firstResult.accountId, 118);
+  assert.equal(secondResult.accountId, 118);
+  assert.equal(manager.getSnapshot(118).generation, 2);
+  assert.equal(manager.get(118).isRestarting, false);
 });
 
-test('destroy failure is logged and does not corrupt the session map', async () => {
-  const harness = createHarness({ failExternalDestroyFor: 117 });
-  const { manager, loggerCalls } = harness;
+test('destroy failure is logged and does not allow an immediate replacement client', async () => {
+  const harness = createHarness({ failDestroyFor: 119 });
+  const { manager, loggerCalls, counters } = harness;
 
-  await manager.start({ accountId: 117, sessionName: 'wa_session_117', desiredState: 'running' });
-  await manager.stop(117);
+  await manager.start({ accountId: 119, sessionName: 'wa_session_119', desiredState: 'running' });
+  await manager.stop(119);
+  const beforeRetry = manager.getSnapshot(119);
 
-  assert.equal(manager.has(117), true);
-  assert.equal(manager.getSnapshot(117).state, 'stopped');
+  await manager.start({ accountId: 119, sessionName: 'wa_session_119', desiredState: 'running' });
+
+  assert.equal(beforeRetry.state, 'error');
+  assert.equal(beforeRetry.hasClient, true);
+  assert.equal(counters.createClient, 1);
+  assert.equal(manager.getSnapshot(119).generation, 1);
   assert.equal(loggerCalls.some((entry) => entry.level === 'warn'), true);
 });
 
@@ -322,39 +421,39 @@ test('remove deletes only one stopped session', async () => {
   const harness = createHarness();
   const { manager } = harness;
 
-  await manager.start({ accountId: 118, sessionName: 'wa_session_118', desiredState: 'running' });
-  await manager.start({ accountId: 119, sessionName: 'wa_session_119', desiredState: 'running' });
+  await manager.start({ accountId: 120, sessionName: 'wa_session_120', desiredState: 'running' });
+  await manager.start({ accountId: 121, sessionName: 'wa_session_121', desiredState: 'running' });
 
-  await manager.stop(118);
-  const removed = await manager.remove(118);
+  await manager.stop(120);
+  const removed = await manager.remove(120);
 
   assert.equal(removed, true);
-  assert.equal(manager.has(118), false);
-  assert.equal(manager.has(119), true);
+  assert.equal(manager.has(120), false);
+  assert.equal(manager.has(121), true);
 });
 
 test('shutdownAll stops every session and continues when one destroy fails', async () => {
-  const harness = createHarness({ failExternalDestroyFor: 120 });
+  const harness = createHarness({ failDestroyFor: 122 });
   const { manager } = harness;
 
-  await manager.start({ accountId: 120, sessionName: 'wa_session_120', desiredState: 'running' });
-  await manager.start({ accountId: 121, sessionName: 'wa_session_121', desiredState: 'running' });
+  await manager.start({ accountId: 122, sessionName: 'wa_session_122', desiredState: 'running' });
+  await manager.start({ accountId: 123, sessionName: 'wa_session_123', desiredState: 'running' });
 
   const result = await manager.shutdownAll();
 
   assert.equal(result.total, 2);
   assert.equal(result.failed, 0);
   assert.equal(result.succeeded, 2);
-  assert.equal(manager.getSnapshot(120).state, 'stopped');
-  assert.equal(manager.getSnapshot(121).state, 'stopped');
+  assert.equal(manager.getSnapshot(122).state, 'error');
+  assert.equal(manager.getSnapshot(123).state, 'stopped');
 });
 
 test('snapshots never expose the client object', async () => {
   const { manager } = createHarness();
 
-  await manager.start({ accountId: 122, sessionName: 'wa_session_122', desiredState: 'running' });
+  await manager.start({ accountId: 124, sessionName: 'wa_session_124', desiredState: 'running' });
 
-  const snapshot = manager.getSnapshot(122);
+  const snapshot = manager.getSnapshot(124);
 
   assert.equal(Object.prototype.hasOwnProperty.call(snapshot, 'client'), false);
   assert.equal(snapshot.hasClient, true);

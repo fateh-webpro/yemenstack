@@ -2,6 +2,13 @@ const { config } = require('./config');
 
 const DEFAULT_STATE = 'stopped';
 const SESSION_NAME_PATTERN = /^wa_[a-z0-9_]+$/;
+const ACTIVE_STATES = new Set([
+  'starting',
+  'waiting_for_qr',
+  'authenticated',
+  'ready',
+  'running',
+]);
 
 const sanitizeError = (error) => {
   if (!error) {
@@ -106,7 +113,19 @@ class SessionManager {
       return context.startPromise;
     }
 
-    if ((context.actualState === 'running' || context.actualState === 'starting') && !context.isStopping && !context.isRestarting) {
+    if (context.stopPromise) {
+      return context.stopPromise.then(() => this.getSnapshot(context.accountId));
+    }
+
+    if (context.isStopping || (context.isRestarting && context.actualState === 'restarting')) {
+      return this.getSnapshot(context.accountId);
+    }
+
+    if (context.client && context.actualState !== 'stopped') {
+      return this.getSnapshot(context.accountId);
+    }
+
+    if (ACTIVE_STATES.has(context.actualState)) {
       return this.getSnapshot(context.accountId);
     }
 
@@ -114,7 +133,10 @@ class SessionManager {
     context.generation = generation;
     context.actualState = 'starting';
     context.isStarting = true;
+    context.isReady = false;
     context.lastError = null;
+    this.cancelReadinessTimeout(context);
+
     context.startPromise = (async () => {
       const callbacks = this.createCallbacks(context.accountId, generation);
       const descriptor = this.buildSessionDescriptor(context);
@@ -128,7 +150,6 @@ class SessionManager {
       context.client = client;
       this.touchContext(context);
       await this.reportStatus(context.accountId, generation, 'connecting');
-      this.armReadinessTimeout(context, generation);
 
       if (client && typeof client.initialize === 'function') {
         await client.initialize();
@@ -139,15 +160,12 @@ class SessionManager {
         return this.getSnapshot(context.accountId);
       }
 
-      if (context.actualState === 'starting') {
-        context.actualState = 'running';
-      }
-
       this.touchContext(context);
       return this.getSnapshot(context.accountId);
     })().catch(async (error) => {
       context.lastError = sanitizeError(error);
       context.actualState = 'error';
+      context.cancelReadinessTimeout = false;
       this.cancelReadinessTimeout(context);
       this.touchContext(context);
 
@@ -157,7 +175,17 @@ class SessionManager {
       });
 
       if (context.client) {
-        await this.destroyClient(context.client, context, 'start_failure');
+        try {
+          await this.destroyClient(context.client, context, 'start_failure');
+        } catch (destroyError) {
+          context.lastError = sanitizeError(destroyError);
+          this.dependencies.logger.warn('Failed to destroy session client cleanly.', {
+            accountId: context.accountId,
+            reason: 'start_failure',
+            message: destroyError.message,
+          });
+        }
+
         context.client = null;
       }
 
@@ -239,7 +267,7 @@ class SessionManager {
       return false;
     }
 
-    if (context.client || context.actualState !== 'stopped' || context.isStarting || context.isRestarting) {
+    if (context.client || context.actualState !== 'stopped' || context.isStarting || context.isRestarting || context.isStopping || context.stopPromise) {
       await this.stop(accountId);
     }
 
@@ -287,6 +315,8 @@ class SessionManager {
 
   async stopContext(context, options = {}) {
     const { preserveDesiredState = false, reason = 'stop' } = options;
+    const activeClient = context.client;
+    let destroyFailed = false;
 
     try {
       this.cancelReadinessTimeout(context);
@@ -302,11 +332,13 @@ class SessionManager {
         this.dependencies.stopPolling(context);
       }
 
-      if (context.client) {
+      if (activeClient) {
         try {
-          await this.destroyClient(context.client, context, reason);
+          await this.destroyClient(activeClient, context, reason);
         } catch (error) {
+          destroyFailed = true;
           context.lastError = sanitizeError(error);
+          context.actualState = 'error';
           this.dependencies.logger.warn('Failed to destroy session client cleanly.', {
             accountId: context.accountId,
             reason,
@@ -315,13 +347,18 @@ class SessionManager {
         }
       }
 
-      context.client = null;
       context.isReady = false;
       context.isCycleRunning = false;
-      context.actualState = 'stopped';
 
       if (!preserveDesiredState) {
         context.desiredState = 'stopped';
+      }
+
+      if (destroyFailed) {
+        context.client = activeClient;
+      } else {
+        context.client = null;
+        context.actualState = 'stopped';
       }
 
       this.touchContext(context);
@@ -347,16 +384,25 @@ class SessionManager {
   }
 
   createCallbacks(accountId, generation) {
-    const isCurrent = () => this.isCurrentGeneration(accountId, generation);
     const getContext = () => this.get(accountId);
+    const resolveContext = () => {
+      const context = getContext();
+
+      if (!this.shouldHandleCallback(context, generation)) {
+        return null;
+      }
+
+      return context;
+    };
 
     return {
       onQr: (qr) => {
-        const context = getContext();
-        if (!context || !isCurrent()) {
+        const context = resolveContext();
+        if (!context) {
           return;
         }
 
+        context.actualState = 'waiting_for_qr';
         this.dependencies.logger.info('Managed session QR is required.', {
           accountId: context.accountId,
           sessionName: context.sessionName,
@@ -369,11 +415,13 @@ class SessionManager {
         })();
       },
       onAuthenticated: () => {
-        const context = getContext();
-        if (!context || !isCurrent()) {
+        const context = resolveContext();
+        if (!context) {
           return;
         }
 
+        context.actualState = 'authenticated';
+        this.armReadinessTimeout(context, generation);
         this.dependencies.logger.info('Managed session authenticated.', {
           accountId: context.accountId,
           sessionName: context.sessionName,
@@ -383,14 +431,14 @@ class SessionManager {
         void this.reportStatus(context.accountId, generation, 'authenticated');
       },
       onReady: () => {
-        const context = getContext();
-        if (!context || !isCurrent()) {
+        const context = resolveContext();
+        if (!context) {
           return;
         }
 
         this.cancelReadinessTimeout(context);
         context.isReady = true;
-        context.actualState = 'running';
+        context.actualState = 'ready';
         context.lastError = null;
         context.pollTimer = this.dependencies.startPolling(context) || context.pollTimer || null;
         this.dependencies.logger.info('Managed session ready.', {
@@ -405,8 +453,8 @@ class SessionManager {
         void this.startMessageWorker(context);
       },
       onDisconnected: (reason) => {
-        const context = getContext();
-        if (!context || !isCurrent()) {
+        const context = resolveContext();
+        if (!context) {
           return;
         }
 
@@ -434,8 +482,8 @@ class SessionManager {
         });
       },
       onError: (error) => {
-        const context = getContext();
-        if (!context || !isCurrent()) {
+        const context = resolveContext();
+        if (!context) {
           return;
         }
 
@@ -458,8 +506,8 @@ class SessionManager {
         });
       },
       onStateChanged: (state) => {
-        const context = getContext();
-        if (!context || !isCurrent()) {
+        const context = resolveContext();
+        if (!context) {
           return;
         }
 
@@ -472,8 +520,8 @@ class SessionManager {
         this.touchContext(context);
       },
       onLoadingScreen: (percent, message) => {
-        const context = getContext();
-        if (!context || !isCurrent()) {
+        const context = resolveContext();
+        if (!context) {
           return;
         }
 
@@ -575,18 +623,22 @@ class SessionManager {
   }
 
   armReadinessTimeout(context, generation) {
-    this.cancelReadinessTimeout(context);
-
     const readinessTimeoutMs = this.dependencies.readinessTimeoutMs;
 
     if (!Number.isInteger(readinessTimeoutMs) || readinessTimeoutMs <= 0) {
       return;
     }
 
+    if (context.waitingForReady && context.readinessTimer) {
+      return;
+    }
+
+    this.cancelReadinessTimeout(context);
+
     context.waitingForReady = true;
     context.readinessDeadlineAt = new Date(Date.now() + readinessTimeoutMs).toISOString();
-    context.readinessTimer = this.dependencies.setTimeout(() => {
-      void this.handleReadinessTimeout(context.accountId, generation);
+    context.readinessTimer = this.dependencies.setTimeout(async () => {
+      await this.handleReadinessTimeout(context.accountId, generation);
     }, readinessTimeoutMs);
     this.touchContext(context);
   }
@@ -609,7 +661,7 @@ class SessionManager {
     }
 
     this.cancelReadinessTimeout(context);
-    context.actualState = 'error';
+    context.actualState = 'stopping';
     context.isReady = false;
     context.lastError = sanitizeError(Object.assign(
       new Error('Managed session readiness timeout after authentication.'),
@@ -636,12 +688,15 @@ class SessionManager {
       error_message: 'Managed session readiness timeout after authentication.',
     });
 
-    const activeClient = context.client;
-    context.client = null;
+    context.isStopping = true;
+    context.stopPromise = this.stopContext(context, {
+      preserveDesiredState: true,
+      reason: 'readiness_timeout',
+    }).finally(() => {
+      context.stopPromise = null;
+    });
 
-    if (activeClient) {
-      await this.destroyClient(activeClient, context, 'readiness_timeout');
-    }
+    await context.stopPromise;
 
     this.touchContext(context);
     return true;
@@ -799,6 +854,18 @@ class SessionManager {
   isCurrentGeneration(accountId, generation) {
     const context = this.get(accountId);
     return Boolean(context) && context.generation === generation;
+  }
+
+  shouldHandleCallback(context, generation) {
+    if (!context || context.generation !== generation) {
+      return false;
+    }
+
+    if (context.isStopping || context.actualState === 'stopped' || context.actualState === 'restarting') {
+      return false;
+    }
+
+    return true;
   }
 
   normalizeAccountId(accountId) {

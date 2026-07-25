@@ -83,7 +83,7 @@ class WhatsappPairingPublicPageTest extends TestCase
         $component->call('refreshSnapshot')->assertSet('state', 'expired')->assertSet('shouldPoll', false);
     }
 
-    public function test_qr_required_state_renders_an_embedded_svg_image_without_leaking_raw_qr_or_sensitive_fields(): void
+    public function test_qr_required_state_renders_an_embedded_svg_image_with_bounded_responsive_size(): void
     {
         $account = $this->createWhatsappAccount(status: WhatsappAccount::STATUS_QR_REQUIRED, notes: 'internal-only-note');
         [$plainToken, $pairingToken] = WhatsappPairingToken::issueForWhatsappAccount($account, now()->addMinutes(30));
@@ -96,6 +96,10 @@ class WhatsappPairingPublicPageTest extends TestCase
             ->assertOk()
             ->assertSee('<img', false)
             ->assertSee('data:image/svg+xml;base64,', false)
+            ->assertSee('pairing-qr-wrapper', false)
+            ->assertSee('w-[min(82vw,360px)]', false)
+            ->assertSee('max-sm:w-[min(88vw,320px)]', false)
+            ->assertDontSee('max-w-xs', false)
             ->assertDontSee('RAW-QR-PUBLIC-PAGE-TEST', false)
             ->assertDontSee($pairingToken->token_hash, false)
             ->assertDontSee($account->session_name, false)
@@ -105,6 +109,7 @@ class WhatsappPairingPublicPageTest extends TestCase
         Livewire::test(PairAccount::class, ['token' => $plainToken])
             ->assertSet('state', WhatsappAccount::STATUS_QR_REQUIRED)
             ->assertSet('shouldPoll', true)
+            ->assertSee('pairing-qr-wrapper', false)
             ->assertSee('امسح رمز QR الظاهر');
     }
 
