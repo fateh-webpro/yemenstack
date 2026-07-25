@@ -13,6 +13,8 @@ class ViewWhatsappAccount extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            WhatsappAccountResource::makeGeneratePairingTokenAction(),
+            WhatsappAccountResource::makeRevokePairingTokenAction(),
             EditAction::make(),
         ];
     }

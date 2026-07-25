@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class WhatsappAccount extends Model
 {
@@ -73,20 +74,20 @@ class WhatsappAccount extends Model
     {
         return [
             self::STATUS_DISCONNECTED => 'غير متصل',
-            self::STATUS_QR_REQUIRED => 'يتطلب QR',
+            self::STATUS_QR_REQUIRED => 'بانتظار مسح رمز QR',
             self::STATUS_CONNECTING => 'جارٍ الاتصال',
-            self::STATUS_AUTHENTICATED => 'تمت المصادقة',
+            self::STATUS_AUTHENTICATED => 'تم التحقق من الحساب',
             self::STATUS_CONNECTED => 'متصل',
             self::STATUS_LOGGED_OUT => 'تم تسجيل الخروج',
-            self::STATUS_ERROR => 'خطأ',
+            self::STATUS_ERROR => 'خطأ في الاتصال',
         ];
     }
 
     public static function desiredStateLabels(): array
     {
         return [
-            self::SESSION_DESIRED_RUNNING => 'مطلوب تشغيلها',
-            self::SESSION_DESIRED_STOPPED => 'متوقفة',
+            self::SESSION_DESIRED_RUNNING => 'مطلوب التشغيل',
+            self::SESSION_DESIRED_STOPPED => 'متوقف إداريًا',
         ];
     }
 
@@ -147,6 +148,11 @@ class WhatsappAccount extends Model
     public function pairingTokens(): HasMany
     {
         return $this->hasMany(WhatsappPairingToken::class);
+    }
+
+    public function latestPairingToken(): HasOne
+    {
+        return $this->hasOne(WhatsappPairingToken::class)->latestOfMany();
     }
 
     public function messages(): HasMany
