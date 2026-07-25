@@ -26,6 +26,8 @@ const sanitizeLogMessage = (value, fallback = null) => {
 };
 
 const createManagedWhatsappClient = (sessionDescriptor, callbacks = {}) => {
+  const shouldPrintQrInTerminal = sessionDescriptor.printQrInTerminal === true;
+
   const client = new Client({
     authStrategy: new LocalAuth({
       clientId: sessionDescriptor.sessionName,
@@ -44,7 +46,10 @@ const createManagedWhatsappClient = (sessionDescriptor, callbacks = {}) => {
   client.on('qr', (qr) => {
     logger.info('Managed WhatsApp QR received.', logContext());
 
-    qrcode.generate(qr, { small: config.whatsappQrTerminalSmall });
+    if (shouldPrintQrInTerminal) {
+      qrcode.generate(qr, { small: config.whatsappQrTerminalSmall });
+    }
+
     callbacks.onQr?.(qr);
   });
 

@@ -168,9 +168,23 @@ test('managed client forwards callbacks and keeps qr raw out of logs', async () 
   assert.equal(callbackCalls.some((entry) => entry.type === 'disconnected' && entry.reason === 'network'), true);
   assert.equal(callbackCalls.some((entry) => entry.type === 'error' && entry.message === 'Bad auth'), true);
   assert.equal(callbackCalls.some((entry) => entry.type === 'error' && entry.message === 'socket failed'), true);
-  assert.equal(harness.qrcodeCalls.length, 1);
-  assert.equal(harness.qrcodeCalls[0].qr, 'RAW-QR-CONTENT');
+  assert.equal(harness.qrcodeCalls.length, 0);
   assert.equal(harness.loggerCalls.some((entry) => JSON.stringify(entry).includes('RAW-QR-CONTENT')), false);
   assert.equal(harness.loggerCalls.some((entry) => entry.message === 'Managed WhatsApp session state changed.'), true);
   assert.equal(harness.loggerCalls.some((entry) => entry.message === 'Managed WhatsApp session loading screen update.'), true);
+});
+
+test('managed client can explicitly opt in to terminal qr printing when requested', async () => {
+  const harness = loadWithMocks();
+  const client = harness.createManagedWhatsappClient({
+    accountId: 10,
+    sessionName: 'wa_session_10',
+    generation: 1,
+    printQrInTerminal: true,
+  });
+
+  client.emit('qr', 'RAW-QR-FOR-TERMINAL');
+
+  assert.equal(harness.qrcodeCalls.length, 1);
+  assert.equal(harness.qrcodeCalls[0].qr, 'RAW-QR-FOR-TERMINAL');
 });
