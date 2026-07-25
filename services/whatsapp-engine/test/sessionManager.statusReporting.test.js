@@ -53,6 +53,15 @@ const createHarness = (options = {}) => {
           throw error;
         }
       },
+      async storeSessionQr(qr, extra = {}) {
+        statusCalls.push({ accountId: descriptor.accountId, generation: descriptor.generation, status: 'store_qr', extra: { ...extra, qr } });
+
+        if (statusFailures.has('store_qr')) {
+          const error = new Error('qr store failed');
+          error.code = 'QR_STORE_FAILED';
+          throw error;
+        }
+      },
     }),
     createMessageWorker: (descriptor, helpers) => ({
       async start() {
@@ -95,10 +104,6 @@ const createHarness = (options = {}) => {
       await timer.callback();
       await flushAsync(4);
     },
-    getActiveTimers(accountId) {
-      const snapshot = manager.getSnapshot(accountId);
-      return { waitingForReady: snapshot.waitingForReady, readinessDeadlineAt: snapshot.readinessDeadlineAt };
-    },
   };
 };
 
@@ -116,12 +121,13 @@ test('managed session lifecycle reports connecting authenticated qr_required con
   await flushAsync(4);
 
   assert.equal(harness.statusCalls.some((entry) => entry.accountId === 701 && entry.status === 'connecting'), true);
+  assert.equal(harness.statusCalls.some((entry) => entry.accountId === 701 && entry.status === 'store_qr'), true);
   assert.equal(harness.statusCalls.some((entry) => entry.accountId === 701 && entry.status === 'qr_required'), true);
   assert.equal(harness.statusCalls.some((entry) => entry.accountId === 701 && entry.status === 'authenticated'), true);
   assert.equal(harness.statusCalls.some((entry) => entry.accountId === 701 && entry.status === 'connected'), true);
   assert.equal(harness.statusCalls.some((entry) => entry.accountId === 701 && entry.status === 'disconnected'), true);
   assert.equal(harness.statusCalls.some((entry) => entry.accountId === 702 && entry.status === 'error'), true);
-  assert.equal(harness.statusCalls.some((entry) => JSON.stringify(entry.extra).includes('RAW-QR-701')), false);
+  assert.equal(harness.logCalls.some((entry) => JSON.stringify(entry).includes('RAW-QR-701')), false);
   assert.equal(harness.workerCalls.some((entry) => entry.type === 'start' && entry.accountId === 701), true);
   assert.equal(harness.workerCalls.some((entry) => entry.type === 'stop' && entry.accountId === 701), true);
   assert.equal(harness.workerCalls.some((entry) => entry.type === 'stop' && entry.accountId === 702), true);
@@ -226,6 +232,18 @@ test('two sessions maintain independent readiness timers', async () => {
   assert.equal(second.waitingForReady, true);
   assert.equal(harness.timers.length, 2);
   assert.equal(harness.timers[0] !== harness.timers[1], true);
+});
+
+test('storing qr failures do not prevent qr_required status reporting', async () => {
+  const harness = createHarness({ statusFailures: ['store_qr'] });
+
+  await harness.manager.start({ accountId: 713, sessionName: 'wa_session_713', desiredState: 'running' });
+  harness.emit(713, 'onQr', 'RAW-QR-713');
+  await flushAsync(4);
+
+  assert.equal(harness.statusCalls.some((entry) => entry.accountId === 713 && entry.status === 'store_qr'), true);
+  assert.equal(harness.statusCalls.some((entry) => entry.accountId === 713 && entry.status === 'qr_required'), true);
+  assert.equal(harness.logCalls.some((entry) => entry.level === 'warn' && String(entry.args[0]).includes('Failed to store managed session QR.')), true);
 });
 
 test('status update failures do not prevent ready from starting the worker', async () => {

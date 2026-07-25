@@ -10,6 +10,7 @@ use App\Models\WhatsappAccount;
 use App\Models\WhatsappPairingToken;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 class WhatsappEngineSessionStatusTest extends TestCase
@@ -74,6 +75,7 @@ class WhatsappEngineSessionStatusTest extends TestCase
     public function test_connecting_and_qr_required_statuses_update_without_storing_qr_raw(): void
     {
         $account = $this->createWhatsappAccount();
+        Cache::put('whatsapp:pairing-qr:' . $account->id, 'RAW-QR-SHOULD-BE-CLEARED', now()->addMinute());
 
         $this->withToken($this->internalToken)
             ->postJson("/api/v1/whatsapp/engine/sessions/{$account->id}/status", [
@@ -99,10 +101,11 @@ class WhatsappEngineSessionStatusTest extends TestCase
         $this->assertSame(WhatsappAccount::STATUS_QR_REQUIRED, $account->status);
         $this->assertNotNull($account->qr_expires_at);
         $this->assertStringNotContainsString('RAW-QR-SHOULD-BE-IGNORED', (string) $account->notes);
+        $this->assertSame('RAW-QR-SHOULD-BE-CLEARED', Cache::get('whatsapp:pairing-qr:' . $account->id));
         $this->assertNoOperationalRecordsWereCreated();
     }
 
-    public function test_authenticated_and_connected_statuses_update_expected_fields(): void
+    public function test_authenticated_and_connected_statuses_update_expected_fields_and_clear_cached_qr(): void
     {
         $account = $this->createWhatsappAccount();
         $qrExpiresAt = now()->addMinutes(2);
@@ -110,17 +113,21 @@ class WhatsappEngineSessionStatusTest extends TestCase
             'status' => WhatsappAccount::STATUS_QR_REQUIRED,
             'qr_expires_at' => $qrExpiresAt,
         ]);
+        Cache::put('whatsapp:pairing-qr:' . $account->id, 'RAW-QR-TO-CLEAR', now()->addMinute());
 
         $lastSeenAt = Carbon::parse('2026-07-24 12:30:00');
 
         $this->withToken($this->internalToken)
             ->postJson("/api/v1/whatsapp/engine/sessions/{$account->id}/status", [
-                'status' => 'authenticated',
+                'status' => WhatsappAccount::STATUS_AUTHENTICATED,
             ])
             ->assertOk()
-            ->assertJsonPath('data.status', 'authenticated');
+            ->assertJsonPath('data.status', WhatsappAccount::STATUS_AUTHENTICATED);
 
         $this->assertNull($account->fresh()->qr_expires_at);
+        $this->assertNull(Cache::get('whatsapp:pairing-qr:' . $account->id));
+
+        Cache::put('whatsapp:pairing-qr:' . $account->id, 'RAW-QR-TO-CLEAR-AGAIN', now()->addMinute());
 
         $response = $this->withToken($this->internalToken)
             ->postJson("/api/v1/whatsapp/engine/sessions/{$account->id}/status", [
@@ -140,11 +147,13 @@ class WhatsappEngineSessionStatusTest extends TestCase
         $this->assertSame('967733333333', $account->phone_number);
         $this->assertTrue($account->last_seen_at?->equalTo($lastSeenAt));
         $this->assertNull($account->qr_expires_at);
+        $this->assertNull(Cache::get('whatsapp:pairing-qr:' . $account->id));
     }
 
-    public function test_disconnected_and_error_statuses_append_sanitized_notes(): void
+    public function test_disconnected_and_error_statuses_append_sanitized_notes_and_clear_cached_qr(): void
     {
         $account = $this->createWhatsappAccount();
+        Cache::put('whatsapp:pairing-qr:' . $account->id, 'RAW-QR-DISCONNECT', now()->addMinute());
 
         $this->withToken($this->internalToken)
             ->postJson("/api/v1/whatsapp/engine/sessions/{$account->id}/status", [
@@ -153,6 +162,10 @@ class WhatsappEngineSessionStatusTest extends TestCase
             ])
             ->assertOk()
             ->assertJsonPath('data.status', WhatsappAccount::STATUS_DISCONNECTED);
+
+        $this->assertNull(Cache::get('whatsapp:pairing-qr:' . $account->id));
+
+        Cache::put('whatsapp:pairing-qr:' . $account->id, 'RAW-QR-ERROR', now()->addMinute());
 
         $response = $this->withToken($this->internalToken)
             ->postJson("/api/v1/whatsapp/engine/sessions/{$account->id}/status", [
@@ -169,6 +182,7 @@ class WhatsappEngineSessionStatusTest extends TestCase
 
         $this->assertSame(WhatsappAccount::STATUS_ERROR, $account->status);
         $this->assertNull($account->qr_expires_at);
+        $this->assertNull(Cache::get('whatsapp:pairing-qr:' . $account->id));
         $this->assertStringContainsString('reason: network drop', (string) $account->notes);
         $this->assertStringContainsString('error_code: AUTH_FAILURE', (string) $account->notes);
         $this->assertStringContainsString('error_message: Authentication failed.', (string) $account->notes);

@@ -61,24 +61,13 @@ const buildQueuedMessagesUrl = (limit = config.fetchLimit) => {
   return url;
 };
 
-const buildAccountStatusUrl = () => {
-  return buildUrl(config.accountStatusPath);
-};
+const buildAccountStatusUrl = () => buildUrl(config.accountStatusPath);
 
-const buildClaimMessageUrl = (messageId) => {
-  const path = config.claimMessagePathTemplate.replace(':id', String(messageId));
-  return buildUrl(path);
-};
+const buildClaimMessageUrl = (messageId) => buildUrl(config.claimMessagePathTemplate.replace(':id', String(messageId)));
 
-const buildMarkSentUrl = (messageId) => {
-  const path = config.markSentPathTemplate.replace(':id', String(messageId));
-  return buildUrl(path);
-};
+const buildMarkSentUrl = (messageId) => buildUrl(config.markSentPathTemplate.replace(':id', String(messageId)));
 
-const buildMarkFailedUrl = (messageId) => {
-  const path = config.markFailedPathTemplate.replace(':id', String(messageId));
-  return buildUrl(path);
-};
+const buildMarkFailedUrl = (messageId) => buildUrl(config.markFailedPathTemplate.replace(':id', String(messageId)));
 
 const buildEngineSessionsUrl = (filters = {}) => {
   const url = buildUrl('/api/v1/whatsapp/engine/sessions');
@@ -94,21 +83,11 @@ const buildEngineSessionsUrl = (filters = {}) => {
   return url;
 };
 
-const buildEngineSessionUrl = (accountId) => {
-  return buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}`);
-};
-
-const buildEngineSessionStartUrl = (accountId) => {
-  return buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/start`);
-};
-
-const buildEngineSessionStopUrl = (accountId) => {
-  return buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/stop`);
-};
-
-const buildEngineSessionStatusUrl = (accountId) => {
-  return buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/status`);
-};
+const buildEngineSessionUrl = (accountId) => buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}`);
+const buildEngineSessionStartUrl = (accountId) => buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/start`);
+const buildEngineSessionStopUrl = (accountId) => buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/stop`);
+const buildEngineSessionStatusUrl = (accountId) => buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/status`);
+const buildEngineSessionQrUrl = (accountId) => buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/qr`);
 
 const buildEngineSessionPendingMessagesUrl = (accountId, limit = config.fetchLimit) => {
   const url = buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/messages/pending`);
@@ -122,25 +101,12 @@ const buildEngineSessionQueuedMessagesUrl = (accountId, limit = config.fetchLimi
   return url;
 };
 
-const buildEngineSessionClaimMessageUrl = (accountId, messageId) => {
-  return buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/messages/${encodeURIComponent(String(messageId))}/claim`);
-};
-
-const buildEngineSessionMarkSentUrl = (accountId, messageId) => {
-  return buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/messages/${encodeURIComponent(String(messageId))}/mark-sent`);
-};
-
-const buildEngineSessionMarkFailedUrl = (accountId, messageId) => {
-  return buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/messages/${encodeURIComponent(String(messageId))}/mark-failed`);
-};
+const buildEngineSessionClaimMessageUrl = (accountId, messageId) => buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/messages/${encodeURIComponent(String(messageId))}/claim`);
+const buildEngineSessionMarkSentUrl = (accountId, messageId) => buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/messages/${encodeURIComponent(String(messageId))}/mark-sent`);
+const buildEngineSessionMarkFailedUrl = (accountId, messageId) => buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/messages/${encodeURIComponent(String(messageId))}/mark-failed`);
 
 const requestLaravelJson = async (url, options = {}) => {
-  const {
-    method = 'GET',
-    token,
-    body,
-  } = options;
-
+  const { method = 'GET', token, body } = options;
   const headers = {
     Accept: 'application/json',
     Authorization: `Bearer ${token}`,
@@ -165,11 +131,7 @@ const requestLaravelJson = async (url, options = {}) => {
   return payload;
 };
 
-const createLaravelClient = (options = {}) => {
-  const {
-    apiToken,
-  } = options;
-
+const createLaravelClient = ({ apiToken } = {}) => {
   const ensureMessageToken = () => {
     ensureToken(apiToken, 'SESSION_API_TOKEN_MISSING', 'Session API token is not configured.');
   };
@@ -177,66 +139,33 @@ const createLaravelClient = (options = {}) => {
   return {
     fetchPendingMessages: async (limit = config.fetchLimit) => {
       ensureMessageToken();
-
-      return requestLaravelJson(buildPendingMessagesUrl(limit), {
-        method: 'GET',
-        token: apiToken,
-      });
+      return requestLaravelJson(buildPendingMessagesUrl(limit), { method: 'GET', token: apiToken });
     },
     fetchQueuedMessages: async (limit = config.fetchLimit) => {
       ensureMessageToken();
-
-      return requestLaravelJson(buildQueuedMessagesUrl(limit), {
-        method: 'GET',
-        token: apiToken,
-      });
+      return requestLaravelJson(buildQueuedMessagesUrl(limit), { method: 'GET', token: apiToken });
     },
     claimMessage: async (messageId) => {
       ensureMessageToken();
-
-      return requestLaravelJson(buildClaimMessageUrl(messageId), {
-        method: 'POST',
-        token: apiToken,
-        body: {},
-      });
+      return requestLaravelJson(buildClaimMessageUrl(messageId), { method: 'POST', token: apiToken, body: {} });
     },
     markMessageSent: async (messageId, extra = {}) => {
       ensureMessageToken();
       const body = Object.keys(extra).length > 0 ? extra : { mode: 'simulation' };
-
-      return requestLaravelJson(buildMarkSentUrl(messageId), {
-        method: 'POST',
-        token: apiToken,
-        body,
-      });
+      return requestLaravelJson(buildMarkSentUrl(messageId), { method: 'POST', token: apiToken, body });
     },
     markMessageFailed: async (messageId, extra = {}) => {
       ensureMessageToken();
-
-      return requestLaravelJson(buildMarkFailedUrl(messageId), {
-        method: 'POST',
-        token: apiToken,
-        body: extra,
-      });
+      return requestLaravelJson(buildMarkFailedUrl(messageId), { method: 'POST', token: apiToken, body: extra });
     },
     updateWhatsappAccountStatus: async (status, extra = {}) => {
       ensureMessageToken();
-
-      return requestLaravelJson(buildAccountStatusUrl(), {
-        method: 'POST',
-        token: apiToken,
-        body: { status, ...extra },
-      });
+      return requestLaravelJson(buildAccountStatusUrl(), { method: 'POST', token: apiToken, body: { status, ...extra } });
     },
   };
 };
 
-const createEngineSessionMessageClient = (options = {}) => {
-  const {
-    internalToken,
-    accountId,
-  } = options;
-
+const createEngineSessionMessageClient = ({ internalToken, accountId } = {}) => {
   const normalizedAccountId = ensureValidAccountId(accountId);
 
   const ensureCentralMessageClient = () => {
@@ -246,120 +175,61 @@ const createEngineSessionMessageClient = (options = {}) => {
   return {
     fetchPendingMessages: async (limit = config.fetchLimit) => {
       ensureCentralMessageClient();
-
-      return requestLaravelJson(buildEngineSessionPendingMessagesUrl(normalizedAccountId, limit), {
-        method: 'GET',
-        token: internalToken,
-      });
+      return requestLaravelJson(buildEngineSessionPendingMessagesUrl(normalizedAccountId, limit), { method: 'GET', token: internalToken });
     },
     fetchQueuedMessages: async (limit = config.fetchLimit) => {
       ensureCentralMessageClient();
-
-      return requestLaravelJson(buildEngineSessionQueuedMessagesUrl(normalizedAccountId, limit), {
-        method: 'GET',
-        token: internalToken,
-      });
+      return requestLaravelJson(buildEngineSessionQueuedMessagesUrl(normalizedAccountId, limit), { method: 'GET', token: internalToken });
     },
     claimMessage: async (messageId) => {
       ensureCentralMessageClient();
-
-      return requestLaravelJson(buildEngineSessionClaimMessageUrl(normalizedAccountId, messageId), {
-        method: 'POST',
-        token: internalToken,
-        body: {},
-      });
+      return requestLaravelJson(buildEngineSessionClaimMessageUrl(normalizedAccountId, messageId), { method: 'POST', token: internalToken, body: {} });
     },
     markMessageSent: async (messageId, extra = {}) => {
       ensureCentralMessageClient();
       const body = Object.keys(extra).length > 0 ? extra : { mode: 'simulation' };
-
-      return requestLaravelJson(buildEngineSessionMarkSentUrl(normalizedAccountId, messageId), {
-        method: 'POST',
-        token: internalToken,
-        body,
-      });
+      return requestLaravelJson(buildEngineSessionMarkSentUrl(normalizedAccountId, messageId), { method: 'POST', token: internalToken, body });
     },
     markMessageFailed: async (messageId, extra = {}) => {
       ensureCentralMessageClient();
-
-      return requestLaravelJson(buildEngineSessionMarkFailedUrl(normalizedAccountId, messageId), {
-        method: 'POST',
-        token: internalToken,
-        body: extra,
-      });
+      return requestLaravelJson(buildEngineSessionMarkFailedUrl(normalizedAccountId, messageId), { method: 'POST', token: internalToken, body: extra });
     },
     updateSessionStatus: async (status, extra = {}) => {
       ensureCentralMessageClient();
-
-      return requestLaravelJson(buildEngineSessionStatusUrl(normalizedAccountId), {
-        method: 'POST',
-        token: internalToken,
-        body: { status, ...extra },
-      });
+      return requestLaravelJson(buildEngineSessionStatusUrl(normalizedAccountId), { method: 'POST', token: internalToken, body: { status, ...extra } });
+    },
+    storeSessionQr: async (qr, extra = {}) => {
+      ensureCentralMessageClient();
+      return requestLaravelJson(buildEngineSessionQrUrl(normalizedAccountId), { method: 'POST', token: internalToken, body: { qr, ...extra } });
     },
   };
 };
 
-const fetchPendingMessages = async (limit = config.fetchLimit) => {
-  return createLaravelClient({ apiToken: config.engineApiToken }).fetchPendingMessages(limit);
-};
-
-const fetchQueuedMessages = async (limit = config.fetchLimit) => {
-  return createLaravelClient({ apiToken: config.engineApiToken }).fetchQueuedMessages(limit);
-};
-
-const claimMessage = async (messageId) => {
-  return createLaravelClient({ apiToken: config.engineApiToken }).claimMessage(messageId);
-};
-
-const markMessageSent = async (messageId, extra = {}) => {
-  return createLaravelClient({ apiToken: config.engineApiToken }).markMessageSent(messageId, extra);
-};
-
-const markMessageFailed = async (messageId, extra = {}) => {
-  return createLaravelClient({ apiToken: config.engineApiToken }).markMessageFailed(messageId, extra);
-};
-
-const updateWhatsappAccountStatus = async (status, extra = {}) => {
-  return createLaravelClient({ apiToken: config.engineApiToken }).updateWhatsappAccountStatus(status, extra);
-};
+const fetchPendingMessages = async (limit = config.fetchLimit) => createLaravelClient({ apiToken: config.engineApiToken }).fetchPendingMessages(limit);
+const fetchQueuedMessages = async (limit = config.fetchLimit) => createLaravelClient({ apiToken: config.engineApiToken }).fetchQueuedMessages(limit);
+const claimMessage = async (messageId) => createLaravelClient({ apiToken: config.engineApiToken }).claimMessage(messageId);
+const markMessageSent = async (messageId, extra = {}) => createLaravelClient({ apiToken: config.engineApiToken }).markMessageSent(messageId, extra);
+const markMessageFailed = async (messageId, extra = {}) => createLaravelClient({ apiToken: config.engineApiToken }).markMessageFailed(messageId, extra);
+const updateWhatsappAccountStatus = async (status, extra = {}) => createLaravelClient({ apiToken: config.engineApiToken }).updateWhatsappAccountStatus(status, extra);
 
 const getEngineSessions = async (filters = {}) => {
   ensureInternalToken();
-
-  return requestLaravelJson(buildEngineSessionsUrl(filters), {
-    method: 'GET',
-    token: config.whatsappEngineInternalToken,
-  });
+  return requestLaravelJson(buildEngineSessionsUrl(filters), { method: 'GET', token: config.whatsappEngineInternalToken });
 };
 
 const getEngineSession = async (accountId) => {
   ensureInternalToken();
-
-  return requestLaravelJson(buildEngineSessionUrl(accountId), {
-    method: 'GET',
-    token: config.whatsappEngineInternalToken,
-  });
+  return requestLaravelJson(buildEngineSessionUrl(accountId), { method: 'GET', token: config.whatsappEngineInternalToken });
 };
 
 const requestEngineSessionStart = async (accountId) => {
   ensureInternalToken();
-
-  return requestLaravelJson(buildEngineSessionStartUrl(accountId), {
-    method: 'POST',
-    token: config.whatsappEngineInternalToken,
-    body: {},
-  });
+  return requestLaravelJson(buildEngineSessionStartUrl(accountId), { method: 'POST', token: config.whatsappEngineInternalToken, body: {} });
 };
 
 const requestEngineSessionStop = async (accountId) => {
   ensureInternalToken();
-
-  return requestLaravelJson(buildEngineSessionStopUrl(accountId), {
-    method: 'POST',
-    token: config.whatsappEngineInternalToken,
-    body: {},
-  });
+  return requestLaravelJson(buildEngineSessionStopUrl(accountId), { method: 'POST', token: config.whatsappEngineInternalToken, body: {} });
 };
 
 module.exports = {
@@ -374,6 +244,7 @@ module.exports = {
   buildEngineSessionStartUrl,
   buildEngineSessionStopUrl,
   buildEngineSessionStatusUrl,
+  buildEngineSessionQrUrl,
   buildEngineSessionPendingMessagesUrl,
   buildEngineSessionQueuedMessagesUrl,
   buildEngineSessionClaimMessageUrl,

@@ -70,17 +70,20 @@ test('engine session message client uses account-scoped central routes with inte
   await client.markMessageSent(11, { external_message_id: 'wamid.701' });
   await client.markMessageFailed(11, { error_message: 'failed' });
   await client.updateSessionStatus('connected', { last_seen_at: '2026-07-24T09:00:00.000Z' });
+  await client.storeSessionQr('RAW-QR-TEST-ACCOUNT-701', { expires_at: '2026-07-24T09:01:00.000Z' });
 
-  assert.equal(calls.length, 6);
+  assert.equal(calls.length, 7);
   assert.match(calls[0].url, /\/api\/v1\/whatsapp\/engine\/sessions\/701\/messages\/pending\?limit=5$/);
   assert.match(calls[1].url, /\/api\/v1\/whatsapp\/engine\/sessions\/701\/messages\/11\/claim$/);
   assert.match(calls[2].url, /\/api\/v1\/whatsapp\/engine\/sessions\/701\/messages\/queued\?limit=3$/);
   assert.match(calls[3].url, /\/api\/v1\/whatsapp\/engine\/sessions\/701\/messages\/11\/mark-sent$/);
   assert.match(calls[4].url, /\/api\/v1\/whatsapp\/engine\/sessions\/701\/messages\/11\/mark-failed$/);
   assert.match(calls[5].url, /\/api\/v1\/whatsapp\/engine\/sessions\/701\/status$/);
+  assert.match(calls[6].url, /\/api\/v1\/whatsapp\/engine\/sessions\/701\/qr$/);
   assert.equal(calls.every((entry) => entry.options.headers.Authorization === 'Bearer central-internal-token'), true);
   assert.equal(calls.every((entry) => entry.options.headers.Authorization !== 'Bearer legacy-token'), true);
   assert.equal(JSON.parse(calls[5].options.body).status, 'connected');
+  assert.equal(JSON.parse(calls[6].options.body).qr, 'RAW-QR-TEST-ACCOUNT-701');
 });
 
 test('engine session message client rejects missing internal token and invalid accountId', async () => {
@@ -96,6 +99,11 @@ test('engine session message client rejects missing internal token and invalid a
 
   await assert.rejects(
     () => missingTokenClient.updateSessionStatus('connected'),
+    /WHATSAPP_ENGINE_INTERNAL_TOKEN is not configured/
+  );
+
+  await assert.rejects(
+    () => missingTokenClient.storeSessionQr('RAW-QR-TEST'),
     /WHATSAPP_ENGINE_INTERNAL_TOKEN is not configured/
   );
 
@@ -117,7 +125,7 @@ test('internal sessions client rejects when the central token is missing', async
   );
 });
 
-test('internal clients errors do not expose the token value', async () => {
+test('internal clients errors do not expose the token value or qr raw in thrown errors', async () => {
   config.whatsappEngineInternalToken = 'secret-token';
   global.fetch = async () => ({
     ok: false,
@@ -152,6 +160,15 @@ test('internal clients errors do not expose the token value', async () => {
     () => client.updateSessionStatus('error', { error_message: 'boom' }),
     (error) => {
       assert.equal(error.message.includes('secret-token'), false);
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () => client.storeSessionQr('RAW-QR-SECRET'),
+    (error) => {
+      assert.equal(error.message.includes('secret-token'), false);
+      assert.equal(error.message.includes('RAW-QR-SECRET'), false);
       return true;
     }
   );

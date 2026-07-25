@@ -351,7 +351,7 @@ class SessionManager {
     const getContext = () => this.get(accountId);
 
     return {
-      onQr: () => {
+      onQr: (qr) => {
         const context = getContext();
         if (!context || !isCurrent()) {
           return;
@@ -363,7 +363,10 @@ class SessionManager {
           generation,
         });
         this.touchContext(context);
-        void this.reportStatus(context.accountId, generation, 'qr_required');
+        void (async () => {
+          await this.storeQr(context.accountId, generation, qr);
+          await this.reportStatus(context.accountId, generation, 'qr_required');
+        })();
       },
       onAuthenticated: () => {
         const context = getContext();
@@ -709,6 +712,32 @@ class SessionManager {
         sessionName: context.sessionName,
         generation,
         status,
+        code: error?.code || null,
+        message: error?.message || String(error),
+      });
+      return false;
+    }
+  }
+
+  async storeQr(accountId, generation, qr, extra = {}) {
+    if (!this.isCurrentGeneration(accountId, generation)) {
+      return false;
+    }
+
+    const context = this.get(accountId);
+
+    if (!context || !context.statusClient || typeof context.statusClient.storeSessionQr !== 'function') {
+      return false;
+    }
+
+    try {
+      await context.statusClient.storeSessionQr(qr, extra);
+      return true;
+    } catch (error) {
+      this.dependencies.logger.warn('Failed to store managed session QR.', {
+        accountId: context.accountId,
+        sessionName: context.sessionName,
+        generation,
         code: error?.code || null,
         message: error?.message || String(error),
       });

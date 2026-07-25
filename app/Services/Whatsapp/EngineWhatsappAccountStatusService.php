@@ -4,9 +4,14 @@ namespace App\Services\Whatsapp;
 
 use App\Models\WhatsappAccount;
 use Carbon\Carbon;
+use Throwable;
 
 class EngineWhatsappAccountStatusService
 {
+    public function __construct(
+        protected WhatsappPairingQrCache $pairingQrCache,
+    ) {}
+
     /**
      * @return array<string, array<int, string>>
      */
@@ -93,6 +98,7 @@ class EngineWhatsappAccountStatusService
         }
 
         $whatsappAccount->update($attributes);
+        $this->syncQrCache($whatsappAccount, $status);
         $whatsappAccount->refresh();
 
         return [
@@ -143,5 +149,28 @@ class EngineWhatsappAccountStatusService
         }
 
         return implode(' | ', $parts);
+    }
+
+    protected function syncQrCache(WhatsappAccount $whatsappAccount, string $status): void
+    {
+        if ($status === WhatsappAccount::STATUS_QR_REQUIRED) {
+            return;
+        }
+
+        if (! in_array($status, [
+            WhatsappAccount::STATUS_AUTHENTICATED,
+            WhatsappAccount::STATUS_CONNECTED,
+            WhatsappAccount::STATUS_DISCONNECTED,
+            WhatsappAccount::STATUS_ERROR,
+            WhatsappAccount::STATUS_LOGGED_OUT,
+        ], true)) {
+            return;
+        }
+
+        try {
+            $this->pairingQrCache->forget($whatsappAccount);
+        } catch (Throwable $exception) {
+            report($exception);
+        }
     }
 }
