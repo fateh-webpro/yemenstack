@@ -60,7 +60,8 @@ class PairAccount extends Component
     {
         return view('livewire.whatsapp.pair-account')
             ->layout('layouts.front', [
-                'title' => 'ربط حساب واتساب | Yemen Stack',
+                'title' => 'ربط حساب واتساب',
+                'showHeader' => false,
             ]);
     }
 

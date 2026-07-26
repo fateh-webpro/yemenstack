@@ -42,6 +42,26 @@ class WhatsappPairingPublicPageTest extends TestCase
         $this->assertOperationalRecordsAreUntouched();
     }
 
+    public function test_pair_page_hides_the_global_header_navigation_without_affecting_the_home_page(): void
+    {
+        $account = $this->createWhatsappAccount(status: WhatsappAccount::STATUS_DISCONNECTED);
+        [$plainToken] = WhatsappPairingToken::issueForWhatsappAccount($account, now()->addMinutes(30));
+
+        $pairResponse = $this->get(route('whatsapp.pair.show', ['token' => $plainToken]));
+
+        $pairResponse
+            ->assertOk()
+            ->assertSee('ربط حساب واتساب')
+            ->assertDontSee('لوحة الإدارة')
+            ->assertDontSee('الرئيسية')
+            ->assertDontSee('الخدمة الحالية')
+            ->assertDontSee('المميزات');
+
+        $this->get('/')
+            ->assertOk()
+            ->assertSee('لوحة الإدارة');
+    }
+
     public function test_invalid_revoked_expired_and_used_tokens_render_a_generic_invalid_page(): void
     {
         $revokedAccount = $this->createWhatsappAccount();
@@ -97,9 +117,9 @@ class WhatsappPairingPublicPageTest extends TestCase
             ->assertSee('<img', false)
             ->assertSee('data:image/svg+xml;base64,', false)
             ->assertSee('pairing-qr-wrapper', false)
-            ->assertSee('w-[min(82vw,360px)]', false)
-            ->assertSee('max-sm:w-[min(88vw,320px)]', false)
-            ->assertDontSee('max-w-xs', false)
+            ->assertSee('width: min(88vw, 360px);', false)
+            ->assertSee('max-width: 360px;', false)
+            ->assertSee('width: 100% !important;', false)
             ->assertDontSee('RAW-QR-PUBLIC-PAGE-TEST', false)
             ->assertDontSee($pairingToken->token_hash, false)
             ->assertDontSee($account->session_name, false)
@@ -110,7 +130,7 @@ class WhatsappPairingPublicPageTest extends TestCase
             ->assertSet('state', WhatsappAccount::STATUS_QR_REQUIRED)
             ->assertSet('shouldPoll', true)
             ->assertSee('pairing-qr-wrapper', false)
-            ->assertSee('امسح رمز QR الظاهر');
+            ->assertSee('بعدها امسح رمز QR الظاهر.');
     }
 
     public function test_authenticated_state_shows_waiting_message_without_rendering_qr(): void
