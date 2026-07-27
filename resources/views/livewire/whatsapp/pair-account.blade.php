@@ -11,6 +11,9 @@
 @endphp
 
 <style>
+    img{
+        height: 100px !important;
+    }
     .pairing-qr-wrapper {
         width: min(88vw, 360px);
         max-width: 360px;
@@ -45,7 +48,7 @@
                     <img
                         src="{{ $siteSettings->brandLogoUrl() }}"
                         alt="{{ $siteSettings->resolvedBrandName() }}"
-                        class="mb-4 h-10 w-auto rounded-xl bg-white/95 p-2 shadow-sm sm:h-20"
+                        class="mb-4 h-10 w-auto rounded-xl bg-white/95 p-2 shadow-sm"
                     >
                     <h1 class="text-3xl font-black leading-tight text-white sm:text-4xl">ربط حساب واتساب</h1>
                     <p class="mt-4 text-sm leading-8 text-slate-200 sm:text-base">
