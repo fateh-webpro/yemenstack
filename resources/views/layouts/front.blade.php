@@ -24,7 +24,7 @@
         @livewireStyles
     </head>
     <body class="min-h-screen bg-slate-950 text-slate-100">
-        <div class="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,42,95,0.45),_transparent_35%),linear-gradient(180deg,_#020617_0%,_#0f172a_52%,_#e2e8f0_52%,_#f8fafc_100%)]">
+        <div class="flex min-h-screen flex-col bg-[radial-gradient(circle_at_top,_rgba(15,42,95,0.45),_transparent_35%),linear-gradient(180deg,_#020617_0%,_#0f172a_52%,_#e2e8f0_52%,_#f8fafc_100%)]">
             @if ($showHeader)
                 <header class="border-b border-white/10 bg-slate-950/75 backdrop-blur">
                     <div class="mx-auto flex w-full max-w-7xl items-center justify-between gap-6 px-6 py-4 lg:px-8">
@@ -57,7 +57,7 @@
                 </header>
             @endif
 
-            <main>
+            <main class="flex-1">
                 {{ $slot }}
             </main>
 

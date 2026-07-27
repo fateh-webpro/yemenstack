@@ -39,13 +39,13 @@
 
 <div @if ($shouldPoll) wire:poll.5s="refreshSnapshot" @endif>
     <section class="overflow-x-hidden px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-12">
-        <div class="mx-auto flex min-h-[calc(100vh-10rem)] w-full max-w-3xl items-center justify-center">
+        <div class="mx-auto flex min-h-full w-full max-w-3xl items-center justify-center">
             <div class="w-full max-w-2xl rounded-[2rem] border border-white/10 bg-slate-950/75 p-6 shadow-2xl shadow-slate-950/40 backdrop-blur sm:p-8 lg:p-10">
                 <div class="mx-auto mb-6 flex w-full max-w-md flex-col items-center text-center">
                     <img
                         src="{{ $siteSettings->brandLogoUrl() }}"
                         alt="{{ $siteSettings->resolvedBrandName() }}"
-                        class="mb-5 h-20 w-auto rounded-2xl bg-white/95 p-3 shadow-sm"
+                        class="mb-4 h-10 w-auto rounded-xl bg-white/95 p-2 shadow-sm sm:h-20"
                     >
                     <h1 class="text-3xl font-black leading-tight text-white sm:text-4xl">ربط حساب واتساب</h1>
                     <p class="mt-4 text-sm leading-8 text-slate-200 sm:text-base">
