@@ -64,6 +64,7 @@
                         src="{{ $siteSettings->brandLogoUrl() }}"
                         alt="{{ $siteSettings->resolvedBrandName() }}"
                         class="mb-4 h-10 w-auto rounded-xl bg-white/95 p-2 shadow-sm"
+                        style="height: 100px; width: auto;"
                     >
                     <h1 class="text-3xl font-black leading-tight text-white sm:text-4xl">ربط حساب واتساب</h1>
                     <p class="mt-4 text-sm leading-8 text-slate-200 sm:text-base">
