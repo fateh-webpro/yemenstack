@@ -723,11 +723,26 @@ const buildSessionMessageWorkerFactory = (dependencies = {}) => {
     return dependencies.createMessageWorker;
   }
 
+  const runtimeResolver = dependencies.runtimeResolver || (() => null);
+
   return (descriptor, helpers) => new SessionMessageWorker({
     accountId: descriptor.accountId,
     sessionName: descriptor.sessionName,
     getWhatsappClient: helpers.getWhatsappClient,
     isReady: helpers.isReady,
+    isRecovering: () => {
+      const runtime = runtimeResolver();
+      return Boolean(runtime && typeof runtime.isRecovering === 'function' && runtime.isRecovering(descriptor.accountId));
+    },
+    onRecoverableError: (metadata) => {
+      const runtime = runtimeResolver();
+
+      if (!runtime || typeof runtime.handleRecoverableError !== 'function') {
+        return false;
+      }
+
+      return runtime.handleRecoverableError(descriptor.accountId, metadata);
+    },
     createMessageClient: dependencies.createMessageClient || (({ accountId }) => createEngineSessionMessageClient({
       internalToken: config.whatsappEngineInternalToken,
       accountId,
@@ -749,9 +764,14 @@ const createMultiSessionRuntime = (dependencies = {}) => {
 
   const { accountIdAllowlist } = validateMultiSessionRuntimeConfig();
 
+  const runtimeRef = { current: null };
+
   const sessionManager = dependencies.sessionManager || new SessionManager({
     createClient: createManagedWhatsappClient,
-    createMessageWorker: buildSessionMessageWorkerFactory(dependencies),
+    createMessageWorker: buildSessionMessageWorkerFactory({
+      ...dependencies,
+      runtimeResolver: () => runtimeRef.current,
+    }),
     createStatusClient: dependencies.createStatusClient || ((descriptor) => createEngineSessionMessageClient({
       internalToken: config.whatsappEngineInternalToken,
       accountId: descriptor.accountId,
@@ -766,7 +786,7 @@ const createMultiSessionRuntime = (dependencies = {}) => {
     requestEngineSessionStop,
   };
 
-  return new MultiSessionRuntime({
+  const runtime = new MultiSessionRuntime({
     sessionManager,
     laravelClient,
     logger,
@@ -774,7 +794,17 @@ const createMultiSessionRuntime = (dependencies = {}) => {
     clearInterval: dependencies.clearInterval || clearInterval,
     syncIntervalMs: dependencies.syncIntervalMs || config.pollIntervalMs,
     accountIdAllowlist: dependencies.accountIdAllowlist || accountIdAllowlist,
+    recoveryInitialDelayMs: dependencies.recoveryInitialDelayMs || config.sessionRecoveryInitialDelayMs,
+    recoveryMaxDelayMs: dependencies.recoveryMaxDelayMs || config.sessionRecoveryMaxDelayMs,
+    recoveryCooldownMs: dependencies.recoveryCooldownMs || config.sessionRecoveryCooldownMs,
+    recoveryMaxAttempts: dependencies.recoveryMaxAttempts || config.sessionRecoveryMaxAttempts,
+    readyTimeoutMs: dependencies.readyTimeoutMs || config.sessionReadyTimeoutMs,
+    heartbeatIntervalMs: dependencies.heartbeatIntervalMs || config.whatsappHeartbeatIntervalMs,
   });
+
+  runtimeRef.current = runtime;
+
+  return runtime;
 };
 
 const createEngineRuntime = (dependencies = {}) => {

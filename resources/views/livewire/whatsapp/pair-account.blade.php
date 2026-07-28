@@ -11,16 +11,19 @@
 @endphp
 
 <style>
-    img{
-        height: 100px !important;
-    }
-    .pairing-qr-wrapper {
-        width: min(88vw, 360px);
-        max-width: 360px;
+    .pairing-qr-card {
+        width: min(88vw, 380px);
+        max-width: 380px;
         margin-inline: auto;
-        padding: 16px;
+        padding: 1rem;
         background: #ffffff;
         border-radius: 1rem;
+    }
+
+    .pairing-qr-wrapper {
+        width: min(82vw, 340px);
+        max-width: 340px;
+        margin-inline: auto;
     }
 
     .pairing-qr-wrapper svg,
@@ -35,7 +38,18 @@
 
     @media (min-width: 640px) {
         .pairing-qr-wrapper {
-            width: min(82vw, 360px);
+            max-width: 360px;
+        }
+    }
+
+    @media (max-width: 640px) {
+        .pairing-qr-card {
+            width: min(88vw, 340px);
+            padding: 0.75rem;
+        }
+
+        .pairing-qr-wrapper {
+            width: min(82vw, 320px);
         }
     }
 </style>
@@ -88,8 +102,10 @@
                     </div>
                 @elseif ($isQrReady)
                     <div class="rounded-[1.75rem] border border-slate-200 bg-white px-5 py-6 text-center shadow-sm sm:px-6 sm:py-7">
-                        <div class="pairing-qr-wrapper border border-slate-200 shadow-sm shadow-slate-200/80">
-                            <img src="{{ $qrSvg }}" alt="رمز ربط واتساب" class="pairing-qr-image">
+                        <div class="pairing-qr-card border border-slate-200 shadow-sm shadow-slate-200/80">
+                            <div class="pairing-qr-wrapper">
+                                <img src="{{ $qrSvg }}" alt="WhatsApp QR code" class="pairing-qr-image">
+                            </div>
                         </div>
 
                         <div class="mx-auto mt-6 max-w-lg rounded-2xl bg-slate-900 px-5 py-4 text-sm leading-8 text-slate-100">

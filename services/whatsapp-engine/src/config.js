@@ -84,6 +84,12 @@ const config = {
   whatsappRestartDelayMs: clamp(toNumber(process.env.WHATSAPP_RESTART_DELAY_MS, 3000), 1000, 60000),
   whatsappRestartTimeoutMs: clamp(toNumber(process.env.WHATSAPP_RESTART_TIMEOUT_MS, 60000), 10000, 180000),
   whatsappMaxRestartAttempts: clamp(toNumber(process.env.WHATSAPP_MAX_RESTART_ATTEMPTS, 3), 1, 10),
+  sessionRecoveryInitialDelayMs: clamp(toNumber(process.env.SESSION_RECOVERY_INITIAL_DELAY_MS, 5000), 1000, 60000),
+  sessionRecoveryMaxDelayMs: clamp(toNumber(process.env.SESSION_RECOVERY_MAX_DELAY_MS, 60000), 1000, 300000),
+  sessionRecoveryCooldownMs: clamp(toNumber(process.env.SESSION_RECOVERY_COOLDOWN_MS, 120000), 10000, 900000),
+  sessionRecoveryMaxAttempts: clamp(toNumber(process.env.SESSION_RECOVERY_MAX_ATTEMPTS, 4), 1, 10),
+  sessionReadyTimeoutMs: clamp(toNumber(process.env.SESSION_READY_TIMEOUT_MS, 60000), 10000, 180000),
+  whatsappHeartbeatIntervalMs: clamp(toNumber(process.env.WHATSAPP_HEARTBEAT_INTERVAL_MS, 30000), 10000, 300000),
 };
 
 const getPublicConfig = () => ({
@@ -108,6 +114,12 @@ const getPublicConfig = () => ({
   whatsappRestartDelayMs: config.whatsappRestartDelayMs,
   whatsappRestartTimeoutMs: config.whatsappRestartTimeoutMs,
   whatsappMaxRestartAttempts: config.whatsappMaxRestartAttempts,
+  sessionRecoveryInitialDelayMs: config.sessionRecoveryInitialDelayMs,
+  sessionRecoveryMaxDelayMs: config.sessionRecoveryMaxDelayMs,
+  sessionRecoveryCooldownMs: config.sessionRecoveryCooldownMs,
+  sessionRecoveryMaxAttempts: config.sessionRecoveryMaxAttempts,
+  sessionReadyTimeoutMs: config.sessionReadyTimeoutMs,
+  whatsappHeartbeatIntervalMs: config.whatsappHeartbeatIntervalMs,
   multiSessionEnabled: config.multiSessionEnabled,
   multiSessionAccountIdsRaw: config.multiSessionAccountIdsRaw,
   multiSessionAccountIds: parseMultiSessionAccountIds(config.multiSessionAccountIdsRaw),

@@ -16,6 +16,9 @@ const createHarness = (sessionsFactory, options = {}) => {
     has(accountId) {
       return active.has(String(accountId));
     },
+    get(accountId) {
+      return active.get(String(accountId)) || null;
+    },
     async start(descriptor) {
       started.push(descriptor);
       active.set(String(descriptor.accountId), {

@@ -43,6 +43,8 @@ class SessionMessageWorker {
     this.whatsappTestRecipient = dependencies.whatsappTestRecipient ?? config.whatsappTestRecipient;
     this.getWhatsappClient = dependencies.getWhatsappClient || (() => null);
     this.isReady = dependencies.isReady || (() => false);
+    this.isRecovering = dependencies.isRecovering || (() => false);
+    this.onRecoverableError = dependencies.onRecoverableError || null;
     this.createLaravelClient = dependencies.createLaravelClient || createLaravelClient;
     this.createMessageClient = dependencies.createMessageClient || null;
     this.resolveApiToken = dependencies.resolveApiToken || null;
@@ -68,7 +70,7 @@ class SessionMessageWorker {
       return this.getSnapshot();
     }
 
-    if (!this.isReady()) {
+    if (!this.isReady() || this.isRecovering()) {
       return this.getSnapshot();
     }
 
@@ -113,7 +115,7 @@ class SessionMessageWorker {
   }
 
   runCycle() {
-    if (!this.isRunning || !this.isReady()) {
+    if (!this.isRunning || !this.isReady() || this.isRecovering()) {
       return this.getSnapshot();
     }
 
@@ -128,7 +130,7 @@ class SessionMessageWorker {
       try {
         const client = this.getWhatsappClient();
 
-        if (!client) {
+        if (!client || this.isRecovering()) {
           return this.getSnapshot();
         }
 
@@ -140,7 +142,7 @@ class SessionMessageWorker {
           service: 'whatsapp-gateway',
         });
 
-        if (!this.enableRealWhatsappSend) {
+        if (!this.enableRealWhatsappSend || this.isRecovering()) {
           return this.getSnapshot();
         }
 
@@ -148,7 +150,7 @@ class SessionMessageWorker {
         const messages = Array.isArray(queuedPayload?.data) ? queuedPayload.data : [];
 
         for (const message of messages) {
-          if (!this.isRunning || !this.isReady()) {
+          if (!this.isRunning || !this.isReady() || this.isRecovering()) {
             break;
           }
 
@@ -158,6 +160,24 @@ class SessionMessageWorker {
           });
 
           if (sendResult?.recoverable) {
+            this.logger.warn('Message deferred while session is recovering.', {
+              accountId: this.accountId,
+              sessionName: this.sessionName,
+              messageId: sendResult.messageId ?? message?.id ?? null,
+              stage: sendResult.stage ?? 'unknown',
+              errorMessage: sendResult.error ?? null,
+            });
+
+            if (typeof this.onRecoverableError === 'function') {
+              await this.onRecoverableError({
+                accountId: this.accountId,
+                sessionName: this.sessionName,
+                messageId: sendResult.messageId ?? message?.id ?? null,
+                stage: sendResult.stage ?? 'unknown',
+                error: sendResult.errorObject || new Error(sendResult.error || 'Recoverable session error.'),
+              });
+            }
+
             break;
           }
         }
@@ -194,6 +214,10 @@ class SessionMessageWorker {
       return { success: false, failed: false, error: error.message };
     }
 
+    if (this.isRecovering()) {
+      return { success: false, failed: false, skipped: true, reason: 'session_recovering' };
+    }
+
     if (this.whatsappTestRecipient) {
       const expectedRecipient = normalizeRecipient(this.whatsappTestRecipient);
       const actualRecipient = normalizeRecipient(message?.recipient);
@@ -224,7 +248,7 @@ class SessionMessageWorker {
       this.failedCount += 1;
       this.lastError = sanitizeError(new Error(result.error || 'Session message send failed.'));
     } else if (result?.recoverable) {
-      this.lastError = sanitizeError(new Error(result.error || 'Recoverable session send error.'));
+      this.lastError = sanitizeError(result.errorObject || new Error(result.error || 'Recoverable session send error.'));
     }
 
     return result;
@@ -279,6 +303,7 @@ class SessionMessageWorker {
       sessionName: this.sessionName,
       isRunning: this.isRunning,
       isCycleRunning: this.isCycleRunning,
+      isRecovering: this.isRecovering(),
       hasTimer: Boolean(this.timer),
       lastCycleStartedAt: this.lastCycleStartedAt,
       lastCycleFinishedAt: this.lastCycleFinishedAt,

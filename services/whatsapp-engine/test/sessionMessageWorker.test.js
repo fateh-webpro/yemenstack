@@ -208,6 +208,42 @@ test('message send failure marks the message as failed and updates counters', as
   assert.equal(harness.worker.getSnapshot().processedCount, 1);
 });
 
+test('recoverable session errors keep the queued message deferred and stop repeated sends during recovery', async () => {
+  let recovering = false;
+  const recoverableErrorCalls = [];
+  const harness = createHarness({
+    queuedMessages: [{ id: 21, recipient: '967700000021', body: 'recover me' }],
+    whatsappClient: {
+      async getNumberId(recipient) {
+        harness.calls.getNumberId.push(recipient);
+        return { _serialized: recipient + '@c.us' };
+      },
+      async sendMessage() {
+        throw new Error('Attempted to use detached Frame');
+      },
+    },
+  });
+
+  harness.worker.isRecovering = () => recovering;
+  harness.worker.onRecoverableError = async (metadata) => {
+    recovering = true;
+    recoverableErrorCalls.push(metadata);
+    return true;
+  };
+
+  await harness.worker.start();
+
+  assert.equal(harness.calls.markMessageFailed.length, 0);
+  assert.equal(harness.calls.markMessageSent.length, 0);
+  assert.equal(harness.worker.getSnapshot().processedCount, 1);
+  assert.equal(harness.worker.getSnapshot().failedCount, 0);
+  assert.equal(recoverableErrorCalls.length, 1);
+  assert.equal(recoverableErrorCalls[0].messageId, 21);
+  assert.equal(recoverableErrorCalls[0].stage, 'send_message');
+
+  await harness.worker.runCycle();
+  assert.equal(harness.calls.getNumberId.length, 1);
+});
 test('worker stop is idempotent and clears the timer', async () => {
   const harness = createHarness({ queuedMessages: [] });
 

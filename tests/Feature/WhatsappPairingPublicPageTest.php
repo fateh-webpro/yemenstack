@@ -19,6 +19,13 @@ class WhatsappPairingPublicPageTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->withoutVite();
+    }
+
     public function test_public_pair_route_is_throttled_and_requests_start_for_the_correct_account(): void
     {
         $firstAccount = $this->createWhatsappAccount(status: WhatsappAccount::STATUS_DISCONNECTED);
@@ -116,9 +123,11 @@ class WhatsappPairingPublicPageTest extends TestCase
             ->assertOk()
             ->assertSee('<img', false)
             ->assertSee('data:image/svg+xml;base64,', false)
+            ->assertSee('pairing-qr-card', false)
             ->assertSee('pairing-qr-wrapper', false)
-            ->assertSee('width: min(88vw, 360px);', false)
-            ->assertSee('max-width: 360px;', false)
+            ->assertSee('width: min(88vw, 380px);', false)
+            ->assertSee('width: min(82vw, 340px);', false)
+            ->assertSee('max-width: 340px;', false)
             ->assertSee('width: 100% !important;', false)
             ->assertDontSee('RAW-QR-PUBLIC-PAGE-TEST', false)
             ->assertDontSee($pairingToken->token_hash, false)

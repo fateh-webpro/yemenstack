@@ -1,3 +1,6 @@
+const { config } = require('./config');
+const { calculateRecoveryDelayMs, getErrorMessage } = require('./sessionRecovery');
+
 class MultiSessionRuntime {
   constructor(dependencies = {}) {
     if (!dependencies.sessionManager) {
@@ -18,10 +21,17 @@ class MultiSessionRuntime {
     };
     this.setInterval = dependencies.setInterval || global.setInterval;
     this.clearInterval = dependencies.clearInterval || global.clearInterval;
+    this.waitForDelay = dependencies.waitForDelay || ((ms) => new Promise((resolve) => global.setTimeout(resolve, ms)));
     this.syncIntervalMs = dependencies.syncIntervalMs || 5000;
     this.accountIdAllowlist = Array.isArray(dependencies.accountIdAllowlist)
       ? Array.from(new Set(dependencies.accountIdAllowlist.map((value) => String(value))))
       : [];
+    this.recoveryInitialDelayMs = dependencies.recoveryInitialDelayMs || config.sessionRecoveryInitialDelayMs;
+    this.recoveryMaxDelayMs = dependencies.recoveryMaxDelayMs || config.sessionRecoveryMaxDelayMs;
+    this.recoveryCooldownMs = dependencies.recoveryCooldownMs || config.sessionRecoveryCooldownMs;
+    this.recoveryMaxAttempts = dependencies.recoveryMaxAttempts || config.sessionRecoveryMaxAttempts;
+    this.readyTimeoutMs = dependencies.readyTimeoutMs || config.sessionReadyTimeoutMs;
+    this.heartbeatIntervalMs = dependencies.heartbeatIntervalMs || config.whatsappHeartbeatIntervalMs;
 
     this.timer = null;
     this.currentSyncPromise = null;
@@ -41,6 +51,7 @@ class MultiSessionRuntime {
     };
     this.isShuttingDown = false;
     this.shutdownPromise = null;
+    this.recoveryStateByAccountId = new Map();
   }
 
   async start() {
@@ -109,6 +120,10 @@ class MultiSessionRuntime {
           const snapshot = this.getManagedSnapshot(accountId);
 
           try {
+            if (snapshot?.isReady && !this.isRecovering(accountId)) {
+              await this.refreshSessionHeartbeat(accountId);
+            }
+
             if (session.session_desired_state === 'running') {
               if (!snapshot) {
                 this.logger.info('Starting managed session from sync.', {
@@ -152,6 +167,7 @@ class MultiSessionRuntime {
               });
 
               await this.sessionManager.stop(accountId);
+              this.recoveryStateByAccountId.delete(String(accountId));
               stoppedCount += 1;
             }
           } catch (error) {
@@ -179,6 +195,7 @@ class MultiSessionRuntime {
             });
 
             await this.sessionManager.remove(snapshot.accountId);
+            this.recoveryStateByAccountId.delete(String(snapshot.accountId));
             removedCount += 1;
           } catch (error) {
             failedCount += 1;
@@ -260,7 +277,9 @@ class MultiSessionRuntime {
         managed_session_count: this.sessionManager.getAllSnapshots().length,
       });
 
-      return this.sessionManager.shutdownAll();
+      const result = await this.sessionManager.shutdownAll();
+      this.recoveryStateByAccountId.clear();
+      return result;
     })();
 
     try {
@@ -296,9 +315,38 @@ class MultiSessionRuntime {
     return this.sessionManager.getAllSnapshots().find((snapshot) => String(snapshot.accountId) === String(accountId)) || null;
   }
 
+  getRecoveryState(accountId) {
+    const key = String(accountId);
+
+    if (!this.recoveryStateByAccountId.has(key)) {
+      this.recoveryStateByAccountId.set(key, {
+        attempts: 0,
+        blockedUntil: null,
+        lastHeartbeatAt: null,
+        promise: null,
+      });
+    }
+
+    return this.recoveryStateByAccountId.get(key);
+  }
+
+  isRecovering(accountId) {
+    return Boolean(this.getRecoveryState(accountId).promise);
+  }
+
+  isRecoveryBlocked(accountId) {
+    const blockedUntil = this.getRecoveryState(accountId).blockedUntil;
+
+    return Number.isInteger(blockedUntil) && blockedUntil > Date.now();
+  }
+
   isSessionStartBlocked(snapshot) {
     if (!snapshot) {
       return false;
+    }
+
+    if (this.isRecovering(snapshot.accountId) || this.isRecoveryBlocked(snapshot.accountId)) {
+      return true;
     }
 
     if (snapshot.hasClient) {
@@ -314,6 +362,243 @@ class MultiSessionRuntime {
     }
 
     return ['stopping', 'stopped'].includes(snapshot.state);
+  }
+
+  async handleRecoverableError(accountId, metadata = {}) {
+    const recoveryState = this.getRecoveryState(accountId);
+
+    if (recoveryState.promise) {
+      return recoveryState.promise;
+    }
+
+    if (this.isRecoveryBlocked(accountId)) {
+      return false;
+    }
+
+    const context = this.sessionManager.get(accountId);
+
+    if (!context) {
+      return false;
+    }
+
+    const attempt = recoveryState.attempts + 1;
+
+    if (attempt > this.recoveryMaxAttempts) {
+      return this.markRecoveryExhausted(accountId, metadata);
+    }
+
+    const delayMs = calculateRecoveryDelayMs(attempt, {
+      initialDelayMs: this.recoveryInitialDelayMs,
+      maxDelayMs: this.recoveryMaxDelayMs,
+    });
+
+    recoveryState.attempts = attempt;
+
+    this.logger.warn('Recoverable session error detected.', {
+      accountId,
+      sessionName: context.sessionName,
+      generation: context.generation,
+      attempt,
+      delayMs,
+      stage: metadata.stage || 'unknown',
+      errorMessage: getErrorMessage(metadata.error) || null,
+      messageId: metadata.messageId || null,
+    });
+
+    this.logger.info('Session recovery scheduled.', {
+      accountId,
+      sessionName: context.sessionName,
+      generation: context.generation,
+      attempt,
+      delayMs,
+      stage: metadata.stage || 'unknown',
+      messageId: metadata.messageId || null,
+    });
+
+    recoveryState.promise = (async () => {
+      if (context.messageWorker && typeof context.messageWorker.stop === 'function') {
+        await context.messageWorker.stop('session_recovery');
+      }
+
+      if (delayMs > 0) {
+        await this.wait(delayMs);
+      }
+
+      const latestContext = this.sessionManager.get(accountId);
+
+      if (!latestContext || latestContext.desiredState !== 'running') {
+        return false;
+      }
+
+      this.logger.warn('Session recovery started.', {
+        accountId,
+        sessionName: latestContext.sessionName,
+        generation: latestContext.generation,
+        attempt,
+        delayMs,
+      });
+
+      await this.sessionManager.restart(accountId, 'recoverable_session_error');
+
+      this.logger.info('Waiting for recovered session ready.', {
+        accountId,
+        sessionName: latestContext.sessionName,
+        generation: this.sessionManager.getSnapshot(accountId).generation,
+        attempt,
+      });
+
+      const ready = await this.waitForSessionReady(accountId, this.readyTimeoutMs);
+
+      if (!ready) {
+        throw Object.assign(new Error('Recovered session did not become ready within the expected timeout.'), {
+          code: 'SESSION_RECOVERY_READY_TIMEOUT',
+        });
+      }
+
+      recoveryState.attempts = 0;
+      recoveryState.blockedUntil = null;
+      this.logger.info('Session recovery completed.', {
+        accountId,
+        sessionName: this.sessionManager.getSnapshot(accountId).sessionName,
+        generation: this.sessionManager.getSnapshot(accountId).generation,
+        attempt,
+      });
+
+      return true;
+    })().catch(async (error) => {
+      this.logger.error('Session recovery failed.', {
+        accountId,
+        sessionName: context.sessionName,
+        generation: this.sessionManager.getSnapshot(accountId)?.generation ?? context.generation,
+        attempt,
+        delayMs,
+        stage: metadata.stage || 'unknown',
+        errorMessage: error?.message || String(error),
+        messageId: metadata.messageId || null,
+      });
+
+      if (attempt >= this.recoveryMaxAttempts) {
+        await this.markRecoveryExhausted(accountId, {
+          ...metadata,
+          error,
+        });
+      }
+
+      return false;
+    }).finally(() => {
+      recoveryState.promise = null;
+    });
+
+    return recoveryState.promise;
+  }
+
+  async markRecoveryExhausted(accountId, metadata = {}) {
+    const recoveryState = this.getRecoveryState(accountId);
+    const context = this.sessionManager.get(accountId);
+    const blockedUntil = Date.now() + this.recoveryCooldownMs;
+    recoveryState.blockedUntil = blockedUntil;
+
+    if (context?.statusClient && typeof context.statusClient.updateSessionStatus === 'function') {
+      try {
+        await context.statusClient.updateSessionStatus('error', {
+          error_code: 'SESSION_RECOVERY_EXHAUSTED',
+          error_message: 'Session recovery exhausted.',
+        });
+      } catch (error) {
+        this.logger.warn('Failed to update session status after recovery exhaustion.', {
+          accountId,
+          sessionName: context.sessionName,
+          code: error?.code || null,
+          message: error?.message || String(error),
+        });
+      }
+    }
+
+    if (context) {
+      try {
+        await this.sessionManager.stop(accountId);
+      } catch (error) {
+        this.logger.warn('Failed to stop session after recovery exhaustion.', {
+          accountId,
+          sessionName: context.sessionName,
+          code: error?.code || null,
+          message: error?.message || String(error),
+        });
+      }
+    }
+
+    this.logger.error('Session recovery exhausted.', {
+      accountId,
+      sessionName: context?.sessionName || null,
+      generation: this.sessionManager.getSnapshot(accountId)?.generation ?? null,
+      attempt: recoveryState.attempts,
+      delayMs: this.recoveryCooldownMs,
+      stage: metadata.stage || 'unknown',
+      errorMessage: getErrorMessage(metadata.error) || null,
+      messageId: metadata.messageId || null,
+    });
+
+    return false;
+  }
+
+  async waitForSessionReady(accountId, timeoutMs) {
+    const startedAt = Date.now();
+
+    while ((Date.now() - startedAt) < timeoutMs) {
+      const snapshot = this.getManagedSnapshot(accountId);
+
+      if (snapshot?.isReady && snapshot.state === 'ready') {
+        return true;
+      }
+
+      if (!snapshot || snapshot.state === 'error' || snapshot.state === 'stopped') {
+        return false;
+      }
+
+      await this.wait(250);
+    }
+
+    return false;
+  }
+
+  async refreshSessionHeartbeat(accountId) {
+    if (!Number.isInteger(this.heartbeatIntervalMs) || this.heartbeatIntervalMs <= 0) {
+      return false;
+    }
+
+    const recoveryState = this.getRecoveryState(accountId);
+    const now = Date.now();
+
+    if (recoveryState.lastHeartbeatAt && (now - recoveryState.lastHeartbeatAt) < this.heartbeatIntervalMs) {
+      return false;
+    }
+
+    const context = this.sessionManager.get(accountId);
+
+    if (!context?.statusClient || typeof context.statusClient.updateSessionStatus !== 'function') {
+      return false;
+    }
+
+    recoveryState.lastHeartbeatAt = now;
+
+    try {
+      await context.statusClient.updateSessionStatus('connected', {
+        last_seen_at: new Date(now).toISOString(),
+      });
+      return true;
+    } catch (error) {
+      this.logger.warn('Failed to send managed session heartbeat.', {
+        accountId,
+        sessionName: context.sessionName,
+        code: error?.code || null,
+        message: error?.message || String(error),
+      });
+      return false;
+    }
+  }
+
+  wait(ms) {
+    return this.waitForDelay(ms);
   }
 
   touch() {

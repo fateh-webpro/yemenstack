@@ -1,18 +1,6 @@
 const logger = require('./logger');
 const { createLaravelClient } = require('./laravelClient');
-
-const RECOVERABLE_ERROR_PATTERNS = [
-  'detached frame',
-  'attempted to use detached frame',
-  'sendiq called before startcomms',
-  'execution context was destroyed',
-  'target closed',
-  'session closed',
-  'protocol error',
-  'most likely the page has been closed',
-  'navigation failed because browser has disconnected',
-  'connection closed',
-];
+const { isRecoverableSessionError, getErrorMessage } = require('./sessionRecovery');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -24,13 +12,6 @@ const getBodyPreview = (body) => {
   }
 
   return body.length > 80 ? `${body.slice(0, 80)}...` : body;
-};
-
-const isRecoverableWhatsappError = (error) => {
-  const message = error instanceof Error ? error.message : String(error || '');
-  const normalizedMessage = message.toLowerCase();
-
-  return RECOVERABLE_ERROR_PATTERNS.some((pattern) => normalizedMessage.includes(pattern));
 };
 
 const buildResponsePayloadFromSendResult = (result) => ({
@@ -175,12 +156,12 @@ const sendQueuedMessage = async (client, message, options = {}) => {
 
     return { success: true, data: sentPayload?.data ?? null };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error || 'Unknown send error');
+    const errorMessage = getErrorMessage(error) || 'Unknown send error';
     const failedAt = new Date().toISOString();
-    const recoverable = isRecoverableWhatsappError(error);
+    const recoverable = isRecoverableSessionError(error);
 
-    if (recoverable && sendStage === 'resolve_number') {
-      activeLogger.warn('Recoverable WhatsApp connection error detected before sendMessage.', {
+    if (recoverable && sendStage !== 'mark_sent') {
+      activeLogger.warn('Recoverable WhatsApp session error detected while processing a queued message.', {
         service: 'whatsapp-gateway',
         message_id: message?.id,
         stage: sendStage,
@@ -195,6 +176,7 @@ const sendQueuedMessage = async (client, message, options = {}) => {
         stage: sendStage,
         messageId: message.id,
         error: errorMessage,
+        errorObject: error,
       };
     }
 
@@ -234,6 +216,7 @@ const sendQueuedMessage = async (client, message, options = {}) => {
       stage: sendStage,
       messageId: message.id,
       error: errorMessage,
+      errorObject: error,
     };
   }
 };
@@ -241,6 +224,6 @@ const sendQueuedMessage = async (client, message, options = {}) => {
 module.exports = {
   normalizeRecipient,
   getBodyPreview,
-  isRecoverableWhatsappError,
+  isRecoverableWhatsappError: isRecoverableSessionError,
   sendQueuedMessage,
 };

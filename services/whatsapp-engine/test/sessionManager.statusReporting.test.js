@@ -130,15 +130,23 @@ const createHarness = (options = {}) => {
       await timer.callback();
       await flushAsync(4);
     },
-    async waitForDestroy(accountId) {
+    async waitForDestroy(accountId, timeoutMs = 1000) {
       const key = String(accountId);
 
       if (destroyStartedAccounts.has(key)) {
         return;
       }
 
-      await new Promise((resolve) => {
-        destroyWaiters.set(key, resolve);
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          destroyWaiters.delete(key);
+          reject(new Error(`Timed out while waiting for destroy to start for account ${accountId}.`));
+        }, timeoutMs);
+
+        destroyWaiters.set(key, () => {
+          clearTimeout(timeout);
+          resolve();
+        });
       });
     },
     resolveDestroy(accountId) {
