@@ -38,7 +38,8 @@ class WhatsappPairingPublicPageTest extends TestCase
         $response
             ->assertOk()
             ->assertSee('ربط حساب واتساب')
-            ->assertSee('جارٍ تجهيز رمز الربط...');
+            ->assertSee('جارٍ تجهيز رمز الربط...')
+            ->assertSee('wire:poll.5s="refreshSnapshot"', false);
 
         $route = app('router')->getRoutes()->getByName('whatsapp.pair.show');
 
@@ -171,7 +172,40 @@ class WhatsappPairingPublicPageTest extends TestCase
 
         $this->get(route('whatsapp.pair.show', ['token' => $plainToken]))
             ->assertOk()
-            ->assertSee('رابط الربط غير صالح');
+            ->assertSee('تم استخدام رابط الربط بنجاح، والحساب متصل حاليًا.')
+            ->assertSee('لإجراء عملية ربط جديدة، يرجى إنشاء رابط جديد من لوحة التحكم.')
+            ->assertDontSee('wire:poll', false);
+    }
+
+    public function test_reopening_a_used_link_for_a_connected_account_does_not_restart_pairing_or_render_qr(): void
+    {
+        $account = $this->createWhatsappAccount(status: WhatsappAccount::STATUS_CONNECTED);
+        $account->forceFill([
+            'session_desired_state' => WhatsappAccount::SESSION_DESIRED_STOPPED,
+            'start_requested_at' => null,
+        ])->saveQuietly();
+
+        [$plainToken, $pairingToken] = WhatsappPairingToken::issueForWhatsappAccount($account, now()->addMinutes(30));
+        $pairingToken->markAsUsed();
+        app(WhatsappPairingQrCache::class)->put($account, 'RAW-QR-USED-CONNECTED-TEST');
+        $originalSessionName = $account->session_name;
+
+        Livewire::test(PairAccount::class, ['token' => $plainToken])
+            ->assertSet('state', 'used_connected')
+            ->assertSet('completed', true)
+            ->assertSet('shouldPoll', false)
+            ->assertSet('qrSvg', null)
+            ->assertSee('تم استخدام رابط الربط بنجاح، والحساب متصل حاليًا.')
+            ->assertSee('لإجراء عملية ربط جديدة، يرجى إنشاء رابط جديد من لوحة التحكم.')
+            ->assertDontSee('بعدها امسح رمز QR الظاهر.');
+
+        $account->refresh();
+
+        $this->assertSame(WhatsappAccount::STATUS_CONNECTED, $account->status);
+        $this->assertSame(WhatsappAccount::SESSION_DESIRED_STOPPED, $account->session_desired_state);
+        $this->assertSame($originalSessionName, $account->session_name);
+        $this->assertNull($account->start_requested_at);
+        $this->assertNull(app(WhatsappPairingQrCache::class)->get($account));
     }
 
     public function test_inactive_account_or_client_are_rejected_as_invalid_links(): void

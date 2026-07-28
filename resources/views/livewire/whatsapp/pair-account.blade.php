@@ -4,10 +4,11 @@
 
     $siteSettings = SiteSetting::currentOrFallback();
     $isInvalid = in_array($state, ['invalid', 'expired', 'revoked', 'used'], true);
-    $isSuccess = $state === 'connected';
+    $isSuccess = in_array($state, ['connected', 'used_connected'], true);
     $isQrReady = $state === 'qr_required' && filled($qrSvg);
     $isAuthenticated = $state === 'authenticated';
     $isRecoverableError = in_array($state, ['error', 'disconnected', 'logged_out'], true);
+    $isUsedConnected = $state === 'used_connected';
 @endphp
 
 <style>
@@ -83,9 +84,13 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" d="m5 13 4 4L19 7" />
                             </svg>
                         </div>
-                        <h2 class="text-2xl font-bold text-emerald-900">تم ربط حساب واتساب بنجاح.</h2>
+                        <h2 class="text-2xl font-bold text-emerald-900">{{ $message }}</h2>
                         <p class="mt-3 max-w-md text-sm leading-7 text-emerald-800">
-                            يمكن الآن إغلاق هذه الصفحة بأمان.
+                            @if ($isUsedConnected)
+                                لإجراء عملية ربط جديدة، يرجى إنشاء رابط جديد من لوحة التحكم.
+                            @else
+                                يمكنك إغلاق هذه الصفحة الآن.
+                            @endif
                         </p>
                     </div>
                 @elseif ($isInvalid)

@@ -28,8 +28,23 @@ class WhatsappPairingSessionService
         }
 
         $pairingToken->loadMissing('whatsappAccount.client');
+        $whatsappAccount = $pairingToken->whatsappAccount;
 
         if ($pairingToken->isUsed()) {
+            if ($whatsappAccount instanceof WhatsappAccount
+                && $whatsappAccount->status === WhatsappAccount::STATUS_CONNECTED
+                && $whatsappAccount->is_active
+                && $whatsappAccount->client?->is_active
+            ) {
+                $this->forgetQr($whatsappAccount);
+
+                return $this->connectedSnapshot(
+                    state: 'used_connected',
+                    message: 'تم استخدام رابط الربط بنجاح، والحساب متصل حاليًا.',
+                    expiresAt: $pairingToken->expires_at?->toIso8601String(),
+                );
+            }
+
             return $this->invalidSnapshot('used');
         }
 
@@ -40,8 +55,6 @@ class WhatsappPairingSessionService
         if ($pairingToken->isExpired()) {
             return $this->invalidSnapshot('expired');
         }
-
-        $whatsappAccount = $pairingToken->whatsappAccount;
 
         if (! $whatsappAccount instanceof WhatsappAccount || ! $pairingToken->isUsable()) {
             return $this->invalidSnapshot('invalid');
@@ -62,13 +75,11 @@ class WhatsappPairingSessionService
             $this->markTokenAsUsed($pairingToken);
             $this->forgetQr($whatsappAccount);
 
-            return [
-                'state' => 'connected',
-                'message' => 'تم ربط حساب واتساب بنجاح.',
-                'expires_at' => $pairingToken->expires_at?->toIso8601String(),
-                'qr_svg' => null,
-                'should_poll' => false,
-            ];
+            return $this->connectedSnapshot(
+                state: 'connected',
+                message: 'تم ربط حساب واتساب بنجاح.',
+                expiresAt: $pairingToken->expires_at?->toIso8601String(),
+            );
         }
 
         return [
@@ -115,6 +126,20 @@ class WhatsappPairingSessionService
 
             $lockedToken->markAsUsed();
         });
+    }
+
+    /**
+     * @return array<string, bool|string|null>
+     */
+    protected function connectedSnapshot(string $state, string $message, ?string $expiresAt): array
+    {
+        return [
+            'state' => $state,
+            'message' => $message,
+            'expires_at' => $expiresAt,
+            'qr_svg' => null,
+            'should_poll' => false,
+        ];
     }
 
     protected function forgetQr(WhatsappAccount $whatsappAccount): void

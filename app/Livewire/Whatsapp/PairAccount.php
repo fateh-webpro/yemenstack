@@ -53,7 +53,7 @@ class PairAccount extends Component
         $this->expiresAt = $snapshot['expires_at'];
         $this->qrSvg = $snapshot['qr_svg'];
         $this->shouldPoll = (bool) $snapshot['should_poll'];
-        $this->completed = $this->state === 'connected';
+        $this->completed = in_array($this->state, ['connected', 'used_connected'], true);
     }
 
     public function render()
