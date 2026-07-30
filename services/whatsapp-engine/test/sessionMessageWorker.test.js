@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { SessionMessageWorker } = require('../src/sessionMessageWorker');
+const { config } = require('../src/config');
 
 const createHarness = (options = {}) => {
   const calls = {
@@ -20,6 +21,7 @@ const createHarness = (options = {}) => {
   };
 
   let ready = options.ready ?? true;
+  let automaticSendingEnabled = options.automaticSendingEnabled ?? true;
   let client = options.whatsappClient || {
     async getNumberId(recipient) {
       calls.getNumberId.push(recipient);
@@ -34,17 +36,20 @@ const createHarness = (options = {}) => {
     },
   };
 
+  const queuedMessages = options.queuedMessages || [];
+  const manualQueuedMessages = options.manualQueuedMessages || queuedMessages;
+
   const fakeLaravelClient = options.laravelMessageClient || {
     async fetchPendingMessages(limit) {
-      calls.fetchPendingMessages.push(limit);
+      calls.fetchPendingMessages.push({ limit });
       return {
         success: true,
         data: options.pendingMessages || [],
         meta: { limit },
       };
     },
-    async claimMessage(messageId) {
-      calls.claimMessage.push(messageId);
+    async claimMessage(messageId, payload = {}) {
+      calls.claimMessage.push({ messageId, payload });
       return {
         success: true,
         data: {
@@ -55,11 +60,11 @@ const createHarness = (options = {}) => {
         },
       };
     },
-    async fetchQueuedMessages(limit) {
-      calls.fetchQueuedMessages.push(limit);
+    async fetchQueuedMessages(limit, options = {}) {
+      calls.fetchQueuedMessages.push({ limit, options });
       return {
         success: true,
-        data: options.queuedMessages || [],
+        data: options.mode === 'manual' ? manualQueuedMessages : queuedMessages,
       };
     },
     async markMessageSent(messageId, payload) {
@@ -75,6 +80,7 @@ const createHarness = (options = {}) => {
   const worker = new SessionMessageWorker({
     accountId: options.accountId ?? 501,
     sessionName: options.sessionName ?? 'wa_worker_501',
+    getContext: () => ({ automaticSendingEnabled }),
     isReady: () => ready,
     getWhatsappClient: () => client,
     createMessageClient: Object.prototype.hasOwnProperty.call(options, 'createMessageClient')
@@ -121,6 +127,9 @@ const createHarness = (options = {}) => {
     setClient(nextClient) {
       client = nextClient;
     },
+    setAutomaticSendingEnabled(value) {
+      automaticSendingEnabled = value;
+    },
   };
 };
 
@@ -141,15 +150,15 @@ test('worker runCycle uses the central session message client for its own accoun
     accountId: 701,
     sessionName: 'wa_worker_701',
     pendingMessages: [{ id: 1, recipient: '967700000001', body: 'pending', status: 'pending' }],
-    queuedMessages: [{ id: 2, recipient: '967700000002', body: 'hello queued' }],
+    queuedMessages: [],
   });
 
   await harness.worker.start();
 
   assert.deepEqual(harness.calls.createMessageClient, [{ accountId: 701, sessionName: 'wa_worker_701' }]);
-  assert.deepEqual(harness.calls.fetchPendingMessages, [3]);
-  assert.deepEqual(harness.calls.claimMessage, [1]);
-  assert.deepEqual(harness.calls.fetchQueuedMessages, [3]);
+  assert.deepEqual(harness.calls.fetchQueuedMessages, [{ limit: 1, options: { mode: 'automatic' } }]);
+  assert.deepEqual(harness.calls.fetchPendingMessages, [{ limit: 1 }]);
+  assert.deepEqual(harness.calls.claimMessage, [{ messageId: 1, payload: { mode: 'automatic' } }]);
   assert.equal(harness.calls.sendMessage.length, 1);
   assert.equal(harness.calls.markMessageSent.length, 1);
   assert.equal(harness.calls.resolveApiToken, 0);
@@ -162,16 +171,16 @@ test('runCycle is not re-entrant and returns the same promise while active', asy
   const harness = createHarness();
 
   harness.worker.laravelMessageClient = {
-    async fetchPendingMessages() {
+    async fetchQueuedMessages() {
       return new Promise((resolve) => {
-        release = () => resolve({ success: true, data: [], meta: { limit: 3 } });
+        release = () => resolve({ success: true, data: [] });
       });
+    },
+    async fetchPendingMessages() {
+      throw new Error('unexpected');
     },
     async claimMessage() {
       throw new Error('unexpected');
-    },
-    async fetchQueuedMessages() {
-      return { success: true, data: [] };
     },
     async markMessageSent() {},
     async markMessageFailed() {},
@@ -185,6 +194,21 @@ test('runCycle is not re-entrant and returns the same promise while active', asy
   await Promise.resolve();
   release();
   await first;
+});
+
+test('manual mode does not claim pending messages automatically', async () => {
+  const harness = createHarness({
+    automaticSendingEnabled: false,
+    pendingMessages: [{ id: 31, recipient: '967700000031', body: 'pending manual', status: 'pending' }],
+    queuedMessages: [],
+  });
+
+  await harness.worker.start();
+
+  assert.deepEqual(harness.calls.fetchQueuedMessages, [{ limit: 1, options: { mode: 'manual' } }]);
+  assert.equal(harness.calls.fetchPendingMessages.length, 0);
+  assert.equal(harness.calls.claimMessage.length, 0);
+  assert.equal(harness.calls.sendMessage.length, 0);
 });
 
 test('message send failure marks the message as failed and updates counters', async () => {
@@ -244,6 +268,35 @@ test('recoverable session errors keep the queued message deferred and stop repea
   await harness.worker.runCycle();
   assert.equal(harness.calls.getNumberId.length, 1);
 });
+
+test('automatic mode waits before the next message after a successful send', async () => {
+  const originalMin = config.whatsappSendDelayMinMs;
+  const originalMax = config.whatsappSendDelayMaxMs;
+  config.whatsappSendDelayMinMs = 15000;
+  config.whatsappSendDelayMaxMs = 15000;
+
+  try {
+    const harness = createHarness({
+      queuedMessages: [{ id: 41, recipient: '967700000041', body: 'first send' }],
+    });
+
+    await harness.worker.start();
+
+    harness.worker.nextAutomaticSendNotBefore = Date.now() + 15000;
+    const firstFetchCount = harness.calls.fetchQueuedMessages.length;
+    const firstSendCount = harness.calls.sendMessage.length;
+
+    await harness.worker.runCycle();
+
+    assert.equal(harness.calls.fetchQueuedMessages.length, firstFetchCount);
+    assert.equal(harness.calls.sendMessage.length, firstSendCount);
+    assert.equal(typeof harness.worker.getSnapshot().nextAutomaticSendNotBefore, 'number');
+  } finally {
+    config.whatsappSendDelayMinMs = originalMin;
+    config.whatsappSendDelayMaxMs = originalMax;
+  }
+});
+
 test('worker stop is idempotent and clears the timer', async () => {
   const harness = createHarness({ queuedMessages: [] });
 
@@ -293,4 +346,119 @@ test('snapshot never exposes apiToken or whatsapp client', async () => {
 
   assert.equal(Object.prototype.hasOwnProperty.call(snapshot, 'apiToken'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(snapshot, 'client'), false);
+});
+const loadConfigModuleWithEnv = (envOverrides) => {
+  const originalEnv = {
+    WHATSAPP_SEND_DELAY_MIN_MS: process.env.WHATSAPP_SEND_DELAY_MIN_MS,
+    WHATSAPP_SEND_DELAY_MAX_MS: process.env.WHATSAPP_SEND_DELAY_MAX_MS,
+  };
+
+  if (Object.prototype.hasOwnProperty.call(envOverrides, 'WHATSAPP_SEND_DELAY_MIN_MS')) {
+    process.env.WHATSAPP_SEND_DELAY_MIN_MS = envOverrides.WHATSAPP_SEND_DELAY_MIN_MS;
+  } else {
+    delete process.env.WHATSAPP_SEND_DELAY_MIN_MS;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(envOverrides, 'WHATSAPP_SEND_DELAY_MAX_MS')) {
+    process.env.WHATSAPP_SEND_DELAY_MAX_MS = envOverrides.WHATSAPP_SEND_DELAY_MAX_MS;
+  } else {
+    delete process.env.WHATSAPP_SEND_DELAY_MAX_MS;
+  }
+
+  delete require.cache[require.resolve('../src/config')];
+  const freshModule = require('../src/config');
+
+  if (originalEnv.WHATSAPP_SEND_DELAY_MIN_MS === undefined) {
+    delete process.env.WHATSAPP_SEND_DELAY_MIN_MS;
+  } else {
+    process.env.WHATSAPP_SEND_DELAY_MIN_MS = originalEnv.WHATSAPP_SEND_DELAY_MIN_MS;
+  }
+
+  if (originalEnv.WHATSAPP_SEND_DELAY_MAX_MS === undefined) {
+    delete process.env.WHATSAPP_SEND_DELAY_MAX_MS;
+  } else {
+    process.env.WHATSAPP_SEND_DELAY_MAX_MS = originalEnv.WHATSAPP_SEND_DELAY_MAX_MS;
+  }
+
+  delete require.cache[require.resolve('../src/config')];
+  require('../src/config');
+
+  return freshModule;
+};
+
+test('manual mode leaves legacy queued messages untouched when manual send was not requested', async () => {
+  const harness = createHarness({
+    automaticSendingEnabled: false,
+    queuedMessages: [{ id: 51, recipient: '967700000051', body: 'legacy queued automatic' }],
+    manualQueuedMessages: [],
+  });
+
+  await harness.worker.start();
+
+  assert.deepEqual(harness.calls.fetchQueuedMessages, [{ limit: 1, options: { mode: 'manual' } }]);
+  assert.equal(harness.calls.fetchPendingMessages.length, 0);
+  assert.equal(harness.calls.claimMessage.length, 0);
+  assert.equal(harness.calls.sendMessage.length, 0);
+  assert.equal(harness.calls.markMessageSent.length, 0);
+  assert.equal(harness.calls.markMessageFailed.length, 0);
+});
+
+test('automatic mode does not send another message after the server disables automatic claims during the wait window', async () => {
+  const harness = createHarness({
+    queuedMessages: [{ id: 61, recipient: '967700000061', body: 'first automatic message' }],
+  });
+
+  await harness.worker.start();
+  assert.equal(harness.calls.sendMessage.length, 1);
+
+  harness.worker.nextAutomaticSendNotBefore = Date.now() - 1;
+  harness.laravelMessageClient = {
+    async fetchQueuedMessages(limit, options = {}) {
+      harness.calls.fetchQueuedMessages.push({ limit, options });
+      return { success: true, data: [] };
+    },
+    async fetchPendingMessages(limit) {
+      harness.calls.fetchPendingMessages.push({ limit });
+      return { success: true, data: [{ id: 62, recipient: '967700000062', body: 'blocked pending' }] };
+    },
+    async claimMessage(messageId, payload = {}) {
+      harness.calls.claimMessage.push({ messageId, payload });
+      return { success: true, data: null };
+    },
+    async markMessageSent() {
+      throw new Error('unexpected');
+    },
+    async markMessageFailed() {
+      throw new Error('unexpected');
+    },
+  };
+  harness.worker.laravelMessageClient = harness.laravelMessageClient;
+
+  await harness.worker.runCycle();
+
+  assert.equal(harness.calls.sendMessage.length, 1);
+  assert.deepEqual(harness.calls.claimMessage.at(-1), { messageId: 62, payload: { mode: 'automatic' } });
+});
+
+test('send delay configuration stays at or above 15000ms for invalid values', async () => {
+  const reversed = loadConfigModuleWithEnv({
+    WHATSAPP_SEND_DELAY_MIN_MS: '45000',
+    WHATSAPP_SEND_DELAY_MAX_MS: '30000',
+  });
+  assert.equal(reversed.config.whatsappSendDelayMinMs, 15000);
+  assert.equal(reversed.config.whatsappSendDelayMaxMs, 30000);
+
+  const belowMinimum = loadConfigModuleWithEnv({
+    WHATSAPP_SEND_DELAY_MIN_MS: '1',
+    WHATSAPP_SEND_DELAY_MAX_MS: '14999',
+  });
+  assert.equal(belowMinimum.config.whatsappSendDelayMinMs, 15000);
+  assert.equal(belowMinimum.config.whatsappSendDelayMaxMs, 15000);
+
+  const nonNumeric = loadConfigModuleWithEnv({
+    WHATSAPP_SEND_DELAY_MIN_MS: 'abc',
+    WHATSAPP_SEND_DELAY_MAX_MS: '',
+  });
+  assert.equal(nonNumeric.config.whatsappSendDelayMinMs, 15000);
+  assert.equal(nonNumeric.config.whatsappSendDelayMaxMs, 30000);
 });

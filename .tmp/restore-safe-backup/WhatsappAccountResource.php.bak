@@ -89,10 +89,10 @@ class WhatsappAccountResource extends Resource
                     ->default(WhatsappAccount::STATUS_DISCONNECTED)
                     ->required(),
                 Toggle::make('is_active')
-                    ->label('نشط')
+                    ->label('???')
                     ->default(true),
                 Textarea::make('notes')
-                    ->label('ملاحظات')
+                    ->label('�������')
                     ->rows(4)
                     ->columnSpanFull(),
             ]);
@@ -106,7 +106,7 @@ class WhatsappAccountResource extends Resource
             TextEntry::make('phone_number')->label('رقم الهاتف')->placeholder('-'),
             TextEntry::make('session_name')->label('اسم الجلسة'),
             TextEntry::make('session_desired_state')
-                ->label('حالة التشغيل المطلوبة')
+                ->label('���� ������� ��������')
                 ->badge()
                 ->color(fn (?string $state): string => self::desiredStateColor($state))
                 ->formatStateUsing(fn (?string $state): string => self::desiredStateLabelForDisplay($state)),
@@ -115,30 +115,31 @@ class WhatsappAccountResource extends Resource
                 ->badge()
                 ->color(fn (?bool $state): string => self::sendingModeColor($state))
                 ->formatStateUsing(fn (?bool $state): string => self::sendingModeLabel($state)),
-            TextEntry::make('status')                ->label('الحالة الفعلية')
+            TextEntry::make('status')
+                ->label('الحالة الفعلية')
                 ->badge()
                 ->color(fn (?string $state): string => self::statusColor($state))
                 ->formatStateUsing(fn (?string $state): string => self::statusLabelForDisplay($state)),
             TextEntry::make('pairing_link_status')
-                ->label('حالة رابط الربط')
+                ->label('���� ���� �����')
                 ->badge()
                 ->color(fn (WhatsappAccount $record): string => self::pairingStatusColor(self::pairingStatusKey($record)))
                 ->state(fn (WhatsappAccount $record): string => self::pairingStatusLabelFromKey(self::pairingStatusKey($record))),
             TextEntry::make('latestPairingToken.expires_at')
-                ->label('انتهاء رابط الربط')
+                ->label('������ ���� �����')
                 ->dateTime('Y-m-d h:i A')
                 ->placeholder('-'),
             TextEntry::make('latestPairingToken.createdBy.name')
-                ->label('أنشأ الرابط')
+                ->label('���� ������')
                 ->placeholder('-'),
             TextEntry::make('pairing_link_notice')
                 ->label('معلومة مهمة')
-                ->state('يظهر رابط الربط مرة واحدة فقط عند إنشائه. عند فقدانه يجب إنشاء رابط جديد.')
+                ->state('���� ���� ����� ��� ����� ��� ��� ������. ��� ������ ��� ����� ���� ����.')
                 ->columnSpanFull(),
-            IconEntry::make('is_active')->label('نشط')->boolean(),
-            TextEntry::make('last_seen_at')->label('آخر ظهور')->dateTime('Y-m-d h:i A')->placeholder('-'),
+            IconEntry::make('is_active')->label('���')->boolean(),
+            TextEntry::make('last_seen_at')->label('��� ����')->dateTime('Y-m-d h:i A')->placeholder('-'),
             TextEntry::make('qr_expires_at')->label('انتهاء QR')->dateTime('Y-m-d h:i A')->placeholder('-'),
-            TextEntry::make('notes')->label('ملاحظات')->placeholder('-')->columnSpanFull(),
+            TextEntry::make('notes')->label('�������')->placeholder('-')->columnSpanFull(),
             TextEntry::make('created_at')->label('تاريخ الإنشاء')->dateTime('Y-m-d h:i A'),
         ]);
     }
@@ -168,17 +169,17 @@ class WhatsappAccountResource extends Resource
                     ->copyable()
                     ->copyMessage('تم نسخ اسم الجلسة'),
                 TextColumn::make('pairing_link_status')
-                    ->label('رابط الربط')
+                    ->label('���� �����')
                     ->badge()
                     ->state(fn (WhatsappAccount $record): string => self::pairingStatusLabelFromKey(self::pairingStatusKey($record)))
                     ->color(fn (WhatsappAccount $record): string => self::pairingStatusColor(self::pairingStatusKey($record))),
                 TextColumn::make('latestPairingToken.expires_at')
-                    ->label('انتهاء الرابط')
+                    ->label('������ ������')
                     ->dateTime('Y-m-d h:i A')
                     ->placeholder('-')
                     ->toggleable(),
                 TextColumn::make('session_desired_state')
-                    ->label('التشغيل المطلوب')
+                    ->label('������� �������')
                     ->badge()
                     ->color(fn (?string $state): string => self::desiredStateColor($state))
                     ->formatStateUsing(fn (?string $state): string => self::desiredStateLabelForDisplay($state))
@@ -189,17 +190,18 @@ class WhatsappAccountResource extends Resource
                     ->color(fn (?bool $state): string => self::sendingModeColor($state))
                     ->formatStateUsing(fn (?bool $state): string => self::sendingModeLabel($state))
                     ->sortable(),
-                TextColumn::make('status')                    ->label('الحالة الفعلية')
+                TextColumn::make('status')
+                    ->label('الحالة الفعلية')
                     ->badge()
                     ->color(fn (?string $state): string => self::statusColor($state))
                     ->formatStateUsing(fn (?string $state): string => self::statusLabelForDisplay($state))
                     ->sortable(),
                 IconColumn::make('is_active')
-                    ->label('نشط')
+                    ->label('���')
                     ->boolean()
                     ->sortable(),
                 TextColumn::make('last_seen_at')
-                    ->label('آخر ظهور')
+                    ->label('��� ����')
                     ->since()
                     ->placeholder('-')
                     ->sortable()
@@ -214,12 +216,12 @@ class WhatsappAccountResource extends Resource
                     ->label('العميل')
                     ->relationship('client', 'name'),
                 SelectFilter::make('session_desired_state')
-                    ->label('التشغيل المطلوب')
+                    ->label('������� �������')
                     ->options(WhatsappAccount::desiredStateLabels()),
                 SelectFilter::make('status')
                     ->label('الحالة الفعلية')
                     ->options(WhatsappAccount::statusLabels()),
-                TernaryFilter::make('is_active')->label('نشط'),
+                TernaryFilter::make('is_active')->label('���'),
             ])
             ->recordActions([
                 self::makeEnableAutomaticSendingAction(),
@@ -257,22 +259,20 @@ class WhatsappAccountResource extends Resource
             ->label('تشغيل الإرسال التلقائي')
             ->icon(Heroicon::OutlinedPlay)
             ->color('success')
-            ->visible(fn (WhatsappAccount $record): bool => ! $record->automaticSendingEnabled())
+            ->visible(fn (WhatsappAccount $record): bool => $record->is_active && (bool) $record->client?->is_active && ! $record->automaticSendingEnabled())
             ->requiresConfirmation()
-            ->modalDescription('سيبدأ النظام بإرسال الرسائل المعلقة لهذا الحساب تلقائيًا، بفاصل عشوائي من 15 إلى 30 ثانية بين كل رسالة وأخرى.')
+            ->modalDescription('����� ������ ������ ������� ������� ���� ������ �������ǡ ����� ������ �� 15 ��� 30 ����� ��� �� ����� �����.')
             ->action(function (WhatsappAccount $record): void {
                 if (! $record->is_active || ! $record->client?->is_active) {
                     Notification::make()
-                        ->title('لا يمكن تشغيل الإرسال التلقائي لأن الحساب غير نشط.')
+                        ->title('�� ���� ����� ������� �������� ��� ������ ��� ���.')
                         ->warning()
                         ->send();
 
                     return;
                 }
 
-                $record->forceFill([
-                    'automatic_sending_enabled' => true,
-                ])->save();
+                $record->forceFill(['automatic_sending_enabled' => true])->save();
 
                 Notification::make()
                     ->success()
@@ -292,9 +292,7 @@ class WhatsappAccountResource extends Resource
             ->requiresConfirmation()
             ->modalDescription('سيتوقف الإرسال التلقائي بعد انتهاء المحاولة الحالية، وستبقى بقية الرسائل معلقة للإرسال اليدوي أو للتشغيل لاحقًا.')
             ->action(function (WhatsappAccount $record): void {
-                $record->forceFill([
-                    'automatic_sending_enabled' => false,
-                ])->save();
+                $record->forceFill(['automatic_sending_enabled' => false])->save();
 
                 Notification::make()
                     ->success()
@@ -310,28 +308,27 @@ class WhatsappAccountResource extends Resource
             ->label('عرض الرسائل')
             ->icon(Heroicon::OutlinedEnvelope)
             ->color('gray')
-            ->url(fn (WhatsappAccount $record): string => MessageResource::getUrl('index', [
-                'whatsapp_account_id' => $record->getKey(),
-            ]));
+            ->url(fn (WhatsappAccount $record): string => MessageResource::getUrl('index', ['whatsapp_account_id' => $record->getKey()]));
     }
 
     public static function makeGeneratePairingTokenAction(): Action
-    {        return Action::make('generate_pairing_token')
-            ->label('توليد رابط الربط')
+    {
+        return Action::make('generate_pairing_token')
+            ->label('����� ���� �����')
             ->icon(Heroicon::OutlinedKey)
             ->color('success')
             ->visible(fn (WhatsappAccount $record): bool => $record->is_active && (bool) $record->client?->is_active)
             ->schema([
                 TextInput::make('expires_in_minutes')
                     ->label('مدة الصلاحية بالدقائق')
-                    ->helperText('الرابط مؤقت ويُستخدم مرة واحدة فقط. إصدار رابط جديد يُلغي الرابط السابق للحساب نفسه.')
+                    ->helperText('������ ���� �������� ��� ����� ���. ����� ���� ���� ����� ������ ������ ������ ����.')
                     ->numeric()
                     ->minValue(5)
                     ->maxValue(1440)
                     ->default(15)
                     ->required(),
             ])
-            ->modalDescription('سيظهر رابط الربط مرة واحدة فقط بعد الإنشاء، ولن يمكن استعادته لاحقًا من اللوحة.')
+            ->modalDescription('����� ���� ����� ��� ����� ��� ��� �������� ��� ���� �������� ������ �� ������.')
             ->action(function (WhatsappAccount $record, array $data, WhatsappPairingLinkService $pairingLinkService): void {
                 $result = $pairingLinkService->issueLink(
                     $record,
@@ -346,16 +343,21 @@ class WhatsappAccountResource extends Resource
                 Notification::make()
                     ->success()
                     ->persistent()
-                    ->title('تم توليد رابط الربط')
-                    ->body("يظهر رابط الربط مرة واحدة فقط، وعند فقدانه يجب إنشاء رابط جديد.\n\n{$pairingUrl}\n\nينتهي في: {$pairingToken->expires_at?->format('Y-m-d H:i:s')}")
+                    ->title('�� ����� ���� �����')
+                    ->body("���� ���� ����� ��� ����� ��ء ���� ������ ��� ����� ���� ����.\n\n{$pairingUrl}\n\n����� ��: {$pairingToken->expires_at?->format('Y-m-d H:i:s')}")
+
+
+
+
+
                     ->actions([
                         Action::make('copy_pairing_link')
-                            ->label('نسخ الرابط')
+                            ->label('��� ������')
                             ->color('success')
                             ->alpineClickHandler($clipboardScript)
                             ->close(false),
                         Action::make('open_pairing_link')
-                            ->label('فتح صفحة الربط')
+                            ->label('��� ���� �����')
                             ->color('gray')
                             ->url($pairingUrl, shouldOpenInNewTab: true),
                     ])
@@ -366,12 +368,12 @@ class WhatsappAccountResource extends Resource
     public static function makeRevokePairingTokenAction(): Action
     {
         return Action::make('revoke_pairing_token')
-            ->label('إلغاء رابط الربط')
+            ->label('����� ���� �����')
             ->icon(Heroicon::OutlinedNoSymbol)
             ->color('danger')
             ->visible(fn (WhatsappAccount $record): bool => $record->pairingTokens()->usable()->exists())
             ->requiresConfirmation()
-            ->modalDescription('سيُلغى رابط الربط الحالي فورًا دون حذف السجل، ودون فصل جلسة واتساب المتصلة إن وُجدت.')
+            ->modalDescription('������ ���� ����� ������ ����� ��� ��� ����� ���� ��� ���� ������ ������� �� �����.')
             ->action(function (WhatsappAccount $record, WhatsappPairingLinkService $pairingLinkService): void {
                 $statusBefore = $record->status;
                 $desiredStateBefore = $record->session_desired_state;
@@ -380,13 +382,13 @@ class WhatsappAccountResource extends Resource
 
                 Notification::make()
                     ->success()
-                    ->title('تم إلغاء رابط الربط')
+                    ->title('�� ����� ���� �����')
                     ->body($revokedCount > 0
-                        ? 'توقف الرابط الحالي لهذا الحساب فورًا، ويمكن إنشاء رابط جديد عند الحاجة.'
-                        : 'لا يوجد رابط صالح حاليًا لإلغائه.')
+                        ? '���� ������ ������ ���� ������ ����ǡ ����� ����� ���� ���� ��� ������.'
+                        : '�� ���� ���� ���� ������ �������.')
                     ->send();
 
-                if ($record->status !== $statusBefore || $record->session_desired_state !== $desiredStateBefore) {
+                    if ($record->status !== $statusBefore || $record->session_desired_state !== $desiredStateBefore) {
                     $record->forceFill([
                         'status' => $statusBefore,
                         'session_desired_state' => $desiredStateBefore,
@@ -400,11 +402,11 @@ class WhatsappAccountResource extends Resource
         return match ($state) {
             'pending' => 'قيد الإعداد',
             WhatsappAccount::STATUS_CONNECTING => 'جارٍ الاتصال',
-            WhatsappAccount::STATUS_QR_REQUIRED => 'بانتظار مسح رمز QR',
+            WhatsappAccount::STATUS_QR_REQUIRED => '������� ��� ��� QR',
             WhatsappAccount::STATUS_AUTHENTICATED => 'تم التحقق من الحساب',
             WhatsappAccount::STATUS_CONNECTED => 'متصل',
             WhatsappAccount::STATUS_DISCONNECTED => 'غير متصل',
-            WhatsappAccount::STATUS_ERROR => 'خطأ في الاتصال',
+            WhatsappAccount::STATUS_ERROR => '��� �� �������',
             WhatsappAccount::STATUS_LOGGED_OUT => 'تم تسجيل الخروج',
             'stopped' => 'متوقف',
             default => 'غير معروف',
@@ -414,7 +416,7 @@ class WhatsappAccountResource extends Resource
     public static function desiredStateLabelForDisplay(?string $state): string
     {
         return match ($state) {
-            WhatsappAccount::SESSION_DESIRED_RUNNING => 'مطلوب التشغيل',
+            WhatsappAccount::SESSION_DESIRED_RUNNING => '����� �������',
             WhatsappAccount::SESSION_DESIRED_STOPPED => 'متوقف إداريًا',
             default => 'غير معروف',
         };
@@ -450,7 +452,7 @@ class WhatsappAccountResource extends Resource
             'used' => 'مستخدم',
             'revoked' => 'ملغى',
             'expired' => 'منتهي',
-            default => 'لا يوجد رابط',
+            default => '�� ���� ����',
         };
     }
 
@@ -461,8 +463,14 @@ class WhatsappAccountResource extends Resource
             : 'يدوي';
     }
 
+    protected static function sendingModeColor(?bool $state): string
+    {
+        return $state ? 'success' : 'gray';
+    }
+
     protected static function statusColor(?string $state): string
-    {        return match ($state) {
+    {
+        return match ($state) {
             WhatsappAccount::STATUS_CONNECTED => 'success',
             WhatsappAccount::STATUS_QR_REQUIRED => 'warning',
             WhatsappAccount::STATUS_CONNECTING,
@@ -483,12 +491,8 @@ class WhatsappAccountResource extends Resource
         };
     }
 
-    protected static function sendingModeColor(?bool $state): string
+    protected static function pairingStatusColor(string $status): string
     {
-        return $state ? 'success' : 'gray';
-    }
-
-    protected static function pairingStatusColor(string $status): string    {
         return match ($status) {
             'usable' => 'success',
             'used' => 'info',

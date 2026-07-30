@@ -136,6 +136,7 @@ class MultiSessionRuntime {
                   accountId,
                   sessionName: session.session_name,
                   desiredState: 'running',
+                  automaticSendingEnabled: Boolean(session.automatic_sending_enabled),
                 });
                 createdCount += 1;
                 continue;

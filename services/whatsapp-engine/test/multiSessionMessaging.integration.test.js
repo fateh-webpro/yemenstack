@@ -154,3 +154,66 @@ test('missing central client keeps the session ready but blocks only the message
   assert.equal(snapshot.messageWorker.isRunning, false);
   assert.equal(snapshot.messageWorker.lastError.code, 'WHATSAPP_ENGINE_INTERNAL_TOKEN_MISSING');
 });
+test('waiting one automatic account does not block another automatic account', async () => {
+  const calls = [];
+
+  const createWorker = (accountId, body) => new SessionMessageWorker({
+    accountId,
+    sessionName: `wa_session_${accountId}`,
+    getContext: () => ({ automaticSendingEnabled: true }),
+    getWhatsappClient: () => ({
+      async getNumberId(recipient) {
+        return { _serialized: `${recipient}@c.us` };
+      },
+      async sendMessage(chatId, text) {
+        calls.push({ type: 'sendMessage', accountId, chatId, body: text });
+        return { id: { _serialized: `wamid.${accountId}` }, to: chatId };
+      },
+    }),
+    isReady: () => true,
+    createMessageClient: () => ({
+      async fetchQueuedMessages(limit, options = {}) {
+        calls.push({ type: 'fetchQueuedMessages', accountId, options });
+        return { success: true, data: [{ id: accountId * 10, recipient: `967700000${accountId}`, body }] };
+      },
+      async fetchPendingMessages() {
+        calls.push({ type: 'fetchPendingMessages', accountId });
+        return { success: true, data: [] };
+      },
+      async claimMessage() {
+        calls.push({ type: 'claimMessage', accountId });
+        return { success: true, data: null };
+      },
+      async markMessageSent(messageId, payload) {
+        calls.push({ type: 'markMessageSent', accountId, messageId, payload });
+        return { success: true, data: { id: messageId, status: 'sent' } };
+      },
+      async markMessageFailed() {
+        throw new Error('unexpected');
+      },
+    }),
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    pollIntervalMs: 1000,
+    fetchLimit: 1,
+    enableRealWhatsappSend: true,
+    setInterval: () => ({ accountId }),
+    clearInterval: () => {},
+  });
+
+  const workerA = createWorker(801, 'body-801');
+  const workerB = createWorker(802, 'body-802');
+
+  await workerA.start();
+  await workerB.start();
+
+  workerA.nextAutomaticSendNotBefore = Date.now() + 30000;
+  workerB.nextAutomaticSendNotBefore = Date.now() - 1;
+
+  const sendCountBefore = calls.filter((entry) => entry.type === 'sendMessage' && entry.accountId === 802).length;
+
+  await workerA.runCycle();
+  await workerB.runCycle();
+
+  const sendCountAfter = calls.filter((entry) => entry.type === 'sendMessage' && entry.accountId === 802).length;
+  assert.equal(sendCountAfter, sendCountBefore + 1);
+});

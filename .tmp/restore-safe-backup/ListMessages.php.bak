@@ -16,30 +16,30 @@ class ListMessages extends ListRecords
 
     public function getHeading(): string
     {
-        $whatsappAccount = MessageResource::selectedWhatsappAccountFromRequest();
+        $account = MessageResource::selectedWhatsappAccountFromRequest();
 
-        if ($whatsappAccount === null) {
+        if (! $account) {
             return parent::getHeading();
         }
 
-        return 'رسائل ' . $whatsappAccount->name;
+        return 'رسائل ' . $account->name;
     }
 
     public function getSubheading(): ?string
     {
-        $whatsappAccount = MessageResource::selectedWhatsappAccountFromRequest();
+        $account = MessageResource::selectedWhatsappAccountFromRequest();
 
-        if ($whatsappAccount === null) {
+        if (! $account) {
             return null;
         }
 
-        $sessionStatus = MessageResource::statusLabel($whatsappAccount->status);
-        $sendingMode = MessageResource::sendingModeLabel($whatsappAccount->automatic_sending_enabled);
-        $phoneNumber = $whatsappAccount->phone_number ?: '-';
-        $modeNotice = $whatsappAccount->automatic_sending_enabled
+        $sessionStatus = MessageResource::statusLabel($account->status);
+        $sendingMode = MessageResource::sendingModeLabel($account->automatic_sending_enabled);
+        $phoneNumber = $account->phone_number ?: '-';
+        $modeNotice = $account->automatic_sending_enabled
             ? 'الإرسال التلقائي مفعل بفاصل عشوائي من 15 إلى 30 ثانية.'
             : 'الإرسال اليدوي مفعل، ولن تُرسل الرسائل تلقائيًا.';
 
-        return "{$whatsappAccount->name} | {$phoneNumber} | {$sessionStatus} | {$sendingMode} | {$modeNotice}";
+        return "{$account->name} | {$phoneNumber} | {$sessionStatus} | {$sendingMode} | {$modeNotice}";
     }
 }

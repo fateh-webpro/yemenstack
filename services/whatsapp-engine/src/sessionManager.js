@@ -107,6 +107,7 @@ class SessionManager {
     }
 
     context.desiredState = 'running';
+    context.automaticSendingEnabled = Boolean(normalized.automaticSendingEnabled);
     this.touchContext(context);
 
     if (context.startPromise) {
@@ -544,6 +545,7 @@ class SessionManager {
       accountId: sessionDescriptor.accountId,
       sessionName: sessionDescriptor.sessionName,
       desiredState: sessionDescriptor.desiredState || 'stopped',
+      automaticSendingEnabled: Boolean(sessionDescriptor.automaticSendingEnabled),
       actualState: DEFAULT_STATE,
       client: null,
       generation: 0,
@@ -572,6 +574,7 @@ class SessionManager {
       accountId: context.accountId,
       sessionName: context.sessionName,
       desiredState: context.desiredState,
+      automaticSendingEnabled: context.automaticSendingEnabled,
       generation: context.generation,
     };
   }
@@ -582,6 +585,7 @@ class SessionManager {
       sessionName: context.sessionName,
       state: context.actualState,
       desiredState: context.desiredState,
+      automaticSendingEnabled: context.automaticSendingEnabled,
       generation: context.generation,
       isReady: context.isReady,
       waitingForReady: context.waitingForReady,
@@ -838,6 +842,7 @@ class SessionManager {
       accountId: sessionDescriptor.accountId,
       sessionName: sessionDescriptor.sessionName,
       desiredState: sessionDescriptor.desiredState || 'stopped',
+      automaticSendingEnabled: Boolean(sessionDescriptor.automaticSendingEnabled),
     };
   }
 

@@ -34,6 +34,7 @@ class Message extends Model
         'body',
         'payload',
         'status',
+        'manual_send_requested',
         'external_message_id',
         'scheduled_at',
         'sent_at',
@@ -43,6 +44,7 @@ class Message extends Model
 
     protected $casts = [
         'payload' => 'array',
+        'manual_send_requested' => 'boolean',
         'scheduled_at' => 'datetime',
         'sent_at' => 'datetime',
         'failed_at' => 'datetime',
@@ -71,27 +73,27 @@ class Message extends Model
     public static function directionLabels(): array
     {
         return [
-            self::DIRECTION_INBOUND => 'وارد',
-            self::DIRECTION_OUTBOUND => 'صادر',
+            self::DIRECTION_INBOUND => 'ط¸ث†ط·آ§ط·آ±ط·آ¯',
+            self::DIRECTION_OUTBOUND => 'ط·آµط·آ§ط·آ¯ط·آ±',
         ];
     }
 
     public static function statusLabels(): array
     {
         return [
-            self::STATUS_PENDING => 'قيد الانتظار',
-            self::STATUS_QUEUED => 'في قائمة الانتظار',
-            self::STATUS_SENT => 'تم الإرسال',
-            self::STATUS_DELIVERED => 'تم التسليم',
-            self::STATUS_READ => 'تمت القراءة',
-            self::STATUS_FAILED => 'فشل',
+            self::STATUS_PENDING => 'ط¸â€ڑط¸ظ¹ط·آ¯ ط·آ§ط¸â€‍ط·آ§ط¸â€ ط·ع¾ط·آ¸ط·آ§ط·آ±',
+            self::STATUS_QUEUED => 'ط¸ظ¾ط¸ظ¹ ط¸â€ڑط·آ§ط·آ¦ط¸â€¦ط·آ© ط·آ§ط¸â€‍ط·آ§ط¸â€ ط·ع¾ط·آ¸ط·آ§ط·آ±',
+            self::STATUS_SENT => 'ط·ع¾ط¸â€¦ ط·آ§ط¸â€‍ط·آ¥ط·آ±ط·آ³ط·آ§ط¸â€‍',
+            self::STATUS_DELIVERED => 'ط·ع¾ط¸â€¦ ط·آ§ط¸â€‍ط·ع¾ط·آ³ط¸â€‍ط¸ظ¹ط¸â€¦',
+            self::STATUS_READ => 'ط·ع¾ط¸â€¦ط·ع¾ ط·آ§ط¸â€‍ط¸â€ڑط·آ±ط·آ§ط·طŒط·آ©',
+            self::STATUS_FAILED => 'ط¸ظ¾ط·آ´ط¸â€‍',
         ];
     }
 
     public static function typeLabels(): array
     {
         return [
-            self::TYPE_TEXT => 'نص',
+            self::TYPE_TEXT => 'ط¸â€ ط·آµ',
         ];
     }
 

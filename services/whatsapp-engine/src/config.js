@@ -58,6 +58,26 @@ const parseMultiSessionAccountIds = (value) => {
   return Array.from(uniqueIds.values());
 };
 
+const normalizeSendDelayRange = () => {
+  const defaultMin = 15000;
+  const defaultMax = 30000;
+  const parsedMin = toNumber(process.env.WHATSAPP_SEND_DELAY_MIN_MS, defaultMin);
+  const parsedMax = toNumber(process.env.WHATSAPP_SEND_DELAY_MAX_MS, defaultMax);
+  const min = Math.max(parsedMin, defaultMin);
+  const max = Math.max(parsedMax, defaultMin);
+
+  if (max < min) {
+    return {
+      min: defaultMin,
+      max: defaultMax,
+    };
+  }
+
+  return { min, max };
+};
+
+const sendDelayRange = normalizeSendDelayRange();
+
 const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
   engineName: process.env.ENGINE_NAME || 'yemenstack-whatsapp-engine',
@@ -81,6 +101,8 @@ const config = {
   whatsappTestRecipient: process.env.WHATSAPP_TEST_RECIPIENT || '',
   fetchLimit: clamp(toNumber(process.env.ENGINE_FETCH_LIMIT, 10), 1, 50),
   whatsappSendLimit: clamp(toNumber(process.env.WHATSAPP_SEND_LIMIT, 1), 1, 1),
+  whatsappSendDelayMinMs: sendDelayRange.min,
+  whatsappSendDelayMaxMs: sendDelayRange.max,
   whatsappRestartDelayMs: clamp(toNumber(process.env.WHATSAPP_RESTART_DELAY_MS, 3000), 1000, 60000),
   whatsappRestartTimeoutMs: clamp(toNumber(process.env.WHATSAPP_RESTART_TIMEOUT_MS, 60000), 10000, 180000),
   whatsappMaxRestartAttempts: clamp(toNumber(process.env.WHATSAPP_MAX_RESTART_ATTEMPTS, 3), 1, 10),
@@ -111,6 +133,8 @@ const getPublicConfig = () => ({
   whatsappTestRecipient: config.whatsappTestRecipient,
   fetchLimit: config.fetchLimit,
   whatsappSendLimit: config.whatsappSendLimit,
+  whatsappSendDelayMinMs: config.whatsappSendDelayMinMs,
+  whatsappSendDelayMaxMs: config.whatsappSendDelayMaxMs,
   whatsappRestartDelayMs: config.whatsappRestartDelayMs,
   whatsappRestartTimeoutMs: config.whatsappRestartTimeoutMs,
   whatsappMaxRestartAttempts: config.whatsappMaxRestartAttempts,

@@ -39,6 +39,7 @@ class EngineListSessionsController extends Controller
                 'is_active' => $account->is_active,
                 'client_is_active' => (bool) $account->client?->is_active,
                 'session_desired_state' => $account->session_desired_state,
+                'automatic_sending_enabled' => (bool) $account->automatic_sending_enabled,
                 'status' => $account->status,
                 'start_requested_at' => $account->start_requested_at?->toISOString(),
                 'stop_requested_at' => $account->stop_requested_at?->toISOString(),

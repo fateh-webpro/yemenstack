@@ -1,7 +1,6 @@
 const { config } = require('./config');
 const logger = require('./logger');
 const { createLaravelClient } = require('./laravelClient');
-const { pollPendingMessagesWithClient } = require('./pendingMessages');
 const { normalizeRecipient, sendQueuedMessage } = require('./realMessageSender');
 
 const sanitizeError = (error) => {
@@ -41,6 +40,7 @@ class SessionMessageWorker {
     this.fetchLimit = dependencies.fetchLimit || config.fetchLimit;
     this.enableRealWhatsappSend = dependencies.enableRealWhatsappSend ?? config.enableRealWhatsappSend;
     this.whatsappTestRecipient = dependencies.whatsappTestRecipient ?? config.whatsappTestRecipient;
+    this.getContext = dependencies.getContext || (() => null);
     this.getWhatsappClient = dependencies.getWhatsappClient || (() => null);
     this.isReady = dependencies.isReady || (() => false);
     this.isRecovering = dependencies.isRecovering || (() => false);
@@ -63,6 +63,8 @@ class SessionMessageWorker {
     this.failedCount = 0;
     this.currentCyclePromise = null;
     this.cachedApiToken = null;
+    this.nextAutomaticSendNotBefore = null;
+    this.lastPausedReason = null;
   }
 
   async start() {
@@ -110,6 +112,8 @@ class SessionMessageWorker {
 
     this.isRunning = false;
     this.currentCyclePromise = null;
+    this.nextAutomaticSendNotBefore = null;
+    this.lastPausedReason = null;
 
     return this.getSnapshot();
   }
@@ -135,51 +139,74 @@ class SessionMessageWorker {
         }
 
         const laravelMessageClient = await this.ensureLaravelClient();
+        const automaticSendingEnabled = this.isAutomaticSendingEnabled();
+        const sendingMode = automaticSendingEnabled ? 'automatic' : 'manual';
 
-        await pollPendingMessagesWithClient(laravelMessageClient, {
-          logger: this.logger,
-          limit: this.fetchLimit,
-          service: 'whatsapp-gateway',
-        });
+        if (!automaticSendingEnabled) {
+          this.logPausedModeOnce();
+        } else {
+          this.lastPausedReason = null;
+        }
 
-        if (!this.enableRealWhatsappSend || this.isRecovering()) {
+        if (automaticSendingEnabled && this.shouldWaitBeforeAutomaticSend()) {
           return this.getSnapshot();
         }
 
-        const queuedPayload = await laravelMessageClient.fetchQueuedMessages(this.fetchLimit);
-        const messages = Array.isArray(queuedPayload?.data) ? queuedPayload.data : [];
+        const queuedPayload = await laravelMessageClient.fetchQueuedMessages(1, {
+          mode: automaticSendingEnabled ? 'automatic' : 'manual',
+        });
+        const queuedMessages = Array.isArray(queuedPayload?.data) ? queuedPayload.data : [];
 
-        for (const message of messages) {
-          if (!this.isRunning || !this.isReady() || this.isRecovering()) {
-            break;
+        let messageToSend = queuedMessages[0] || null;
+
+        if (!messageToSend && automaticSendingEnabled) {
+          const pendingPayload = await laravelMessageClient.fetchPendingMessages(1);
+          const pendingMessages = Array.isArray(pendingPayload?.data) ? pendingPayload.data : [];
+          const pendingMessage = pendingMessages[0] || null;
+
+          if (pendingMessage) {
+            messageToSend = await this.claimPendingMessage(pendingMessage, laravelMessageClient, 'automatic');
           }
+        }
 
-          const sendResult = await this.sendClaimedMessage(message, {
-            client,
-            laravelMessageClient,
+        if (!messageToSend) {
+          return this.getSnapshot();
+        }
+
+        if (!this.enableRealWhatsappSend) {
+          return this.getSnapshot();
+        }
+
+        const sendResult = await this.sendClaimedMessage(messageToSend, {
+          client,
+          laravelMessageClient,
+        });
+
+        if (sendResult?.recoverable) {
+          this.logger.warn('Message deferred while session is recovering.', {
+            accountId: this.accountId,
+            sessionName: this.sessionName,
+            messageId: sendResult.messageId ?? messageToSend?.id ?? null,
+            stage: sendResult.stage ?? 'unknown',
+            errorMessage: sendResult.error ?? null,
+            sendingMode,
           });
 
-          if (sendResult?.recoverable) {
-            this.logger.warn('Message deferred while session is recovering.', {
+          if (typeof this.onRecoverableError === 'function') {
+            await this.onRecoverableError({
               accountId: this.accountId,
               sessionName: this.sessionName,
-              messageId: sendResult.messageId ?? message?.id ?? null,
+              messageId: sendResult.messageId ?? messageToSend?.id ?? null,
               stage: sendResult.stage ?? 'unknown',
-              errorMessage: sendResult.error ?? null,
+              error: sendResult.errorObject || new Error(sendResult.error || 'Recoverable session error.'),
             });
-
-            if (typeof this.onRecoverableError === 'function') {
-              await this.onRecoverableError({
-                accountId: this.accountId,
-                sessionName: this.sessionName,
-                messageId: sendResult.messageId ?? message?.id ?? null,
-                stage: sendResult.stage ?? 'unknown',
-                error: sendResult.errorObject || new Error(sendResult.error || 'Recoverable session error.'),
-              });
-            }
-
-            break;
           }
+
+          return this.getSnapshot();
+        }
+
+        if (automaticSendingEnabled && (sendResult?.success || sendResult?.failed)) {
+          this.scheduleNextAutomaticSend();
         }
 
         return this.getSnapshot();
@@ -297,6 +324,79 @@ class SessionMessageWorker {
     return null;
   }
 
+  isAutomaticSendingEnabled() {
+    return Boolean(this.getContext()?.automaticSendingEnabled);
+  }
+
+  shouldWaitBeforeAutomaticSend() {
+    if (!this.nextAutomaticSendNotBefore) {
+      return false;
+    }
+
+    return Date.now() < this.nextAutomaticSendNotBefore;
+  }
+
+  scheduleNextAutomaticSend() {
+    const minDelayMs = config.whatsappSendDelayMinMs;
+    const maxDelayMs = config.whatsappSendDelayMaxMs;
+    const delayMs = minDelayMs >= maxDelayMs
+      ? minDelayMs
+      : Math.floor(Math.random() * ((maxDelayMs - minDelayMs) + 1)) + minDelayMs;
+
+    this.nextAutomaticSendNotBefore = Date.now() + delayMs;
+
+    this.logger.info('Waiting before next automatic WhatsApp message.', {
+      accountId: this.accountId,
+      sessionName: this.sessionName,
+      sendingMode: 'automatic',
+      delayMs,
+    });
+  }
+
+  logPausedModeOnce() {
+    if (this.lastPausedReason === 'manual') {
+      return;
+    }
+
+    this.lastPausedReason = 'manual';
+
+    this.logger.info('Automatic sending is disabled for account; worker is paused.', {
+      accountId: this.accountId,
+      sessionName: this.sessionName,
+      sendingMode: 'manual',
+    });
+  }
+
+  async claimPendingMessage(message, laravelMessageClient, mode) {
+    try {
+      const claimPayload = await laravelMessageClient.claimMessage(message.id, { mode });
+      const claimData = claimPayload?.data ?? null;
+
+      if (!claimData) {
+        return null;
+      }
+
+      return {
+        ...message,
+        status: claimData.status || 'queued',
+        manual_send_requested: mode === 'manual',
+      };
+    } catch (error) {
+      this.lastError = sanitizeError(error);
+
+      this.logger.warn('Message claim failed.', {
+        accountId: this.accountId,
+        sessionName: this.sessionName,
+        messageId: message?.id ?? null,
+        sendingMode: mode,
+        code: error.code || null,
+        message: error.message,
+      });
+
+      return null;
+    }
+  }
+
   getSnapshot() {
     return {
       accountId: this.accountId,
@@ -305,6 +405,8 @@ class SessionMessageWorker {
       isCycleRunning: this.isCycleRunning,
       isRecovering: this.isRecovering(),
       hasTimer: Boolean(this.timer),
+      sendingMode: this.isAutomaticSendingEnabled() ? 'automatic' : 'manual',
+      nextAutomaticSendNotBefore: this.nextAutomaticSendNotBefore,
       lastCycleStartedAt: this.lastCycleStartedAt,
       lastCycleFinishedAt: this.lastCycleFinishedAt,
       lastError: this.lastError,

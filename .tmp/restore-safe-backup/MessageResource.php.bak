@@ -24,6 +24,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 use UnitEnum;
 
 class MessageResource extends Resource
@@ -52,14 +53,15 @@ class MessageResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery()->with(['client', 'whatsappAccount.client', 'attempts']);
-        $whatsappAccountId = request()->integer('whatsapp_account_id');
+        $selectedAccountId = request()->integer('whatsapp_account_id');
 
-        if ($whatsappAccountId > 0) {
-            $query->where('whatsapp_account_id', $whatsappAccountId);
+        if ($selectedAccountId > 0) {
+            $query->where('whatsapp_account_id', $selectedAccountId);
         }
 
         return $query;
     }
+
     public static function form(Schema $schema): Schema
     {
         return $schema->components([
@@ -127,7 +129,7 @@ class MessageResource extends Resource
                     TextEntry::make('sent_at')->label('وقت الإرسال')->dateTime('Y-m-d h:i A')->placeholder('-'),
                     TextEntry::make('failed_at')->label('وقت الفشل')->dateTime('Y-m-d h:i A')->placeholder('-'),
                     TextEntry::make('external_message_id')->label('رقم الرسالة الخارجي')->placeholder('-'),
-                    TextEntry::make('error_message')->label('رسالة الخطأ')->placeholder('-')->columnSpanFull(),
+                    TextEntry::make('error_message')->label('����� �����')->placeholder('-')->columnSpanFull(),
                 ])
                 ->columns(2),
             Section::make('محاولات المعالجة')
@@ -151,7 +153,7 @@ class MessageResource extends Resource
                                 ->fontFamily(FontFamily::Mono)
                                 ->copyable()
                                 ->columnSpanFull(),
-                            TextEntry::make('error_message')->label('رسالة الخطأ')->placeholder('-')->columnSpanFull(),
+                            TextEntry::make('error_message')->label('����� �����')->placeholder('-')->columnSpanFull(),
                             TextEntry::make('created_at')->label('تاريخ الإنشاء')->dateTime('Y-m-d h:i A')->placeholder('-'),
                         ])
                         ->columns(2)
@@ -234,14 +236,15 @@ class MessageResource extends Resource
                     ->sortable(),
             ])
             ->filters([
-                SelectFilter::make('whatsapp_account_id')
-                    ->label('حساب واتساب')
-                    ->relationship('whatsappAccount', 'name'),
-                SelectFilter::make('direction')                    ->label('الاتجاه')
+                SelectFilter::make('direction')
+                    ->label('الاتجاه')
                     ->options(Message::directionLabels()),
                 SelectFilter::make('status')
                     ->label('الحالة')
                     ->options(Message::statusLabels()),
+                SelectFilter::make('whatsapp_account_id')
+                    ->label('رقم واتساب')
+                    ->relationship('whatsappAccount', 'name'),
             ])
             ->recordActions([
                 Action::make('send_now')
@@ -250,20 +253,21 @@ class MessageResource extends Resource
                     ->color('success')
                     ->visible(fn (Message $record): bool => self::canShowManualSendAction($record))
                     ->requiresConfirmation()
-                    ->modalDescription('سيتم طلب إرسال هذه الرسالة فقط دون تشغيل بقية الرسائل المعلقة.')
-                    ->action(function (Message $record, EngineMessageLifecycleService $messageLifecycleService): void {
-                        $whatsappAccount = $record->whatsappAccount;
+                    ->modalDescription('���� ��� ����� ��� ������� ��� ��� ����� ���� ������� �������.')
+                    ->action(function (Message $record, EngineMessageLifecycleService $service): void {
+                        $record->loadMissing('whatsappAccount.client');
+                        $account = $record->whatsappAccount;
 
-                        if (! $whatsappAccount instanceof WhatsappAccount) {
+                        if (! $account instanceof WhatsappAccount) {
                             Notification::make()
-                                ->title('تعذر تنفيذ الطلب لأن حساب واتساب المرتبط غير متاح.')
+                                ->title('���� ����� ����� ��� ���� ������ ������� ��� ����.')
                                 ->danger()
                                 ->send();
 
                             return;
                         }
 
-                        $result = $messageLifecycleService->requestManualMessageSend($whatsappAccount, $record);
+                        $result = $service->requestManualMessageSend($account, $record);
 
                         if (! $result['ok']) {
                             Notification::make()
@@ -276,31 +280,32 @@ class MessageResource extends Resource
                         }
 
                         Notification::make()
-                            ->title('تم طلب إرسال الرسالة بنجاح.')
-                            ->body('ستتم معالجة هذه الرسالة فقط دون تشغيل بقية الرسائل المعلقة.')
                             ->success()
+                            ->title('�� ��� ����� ������� �����.')
+                            ->body('���� ������ ��� ������� ��� ��� ����� ���� ������� �������.')
                             ->send();
                     }),
                 Action::make('retry')
                     ->label('إعادة محاولة الإرسال')
                     ->icon(Heroicon::OutlinedArrowPath)
                     ->color('warning')
-                    ->visible(fn (Message $record): bool => $record->status === Message::STATUS_FAILED && ! $record->whatsappAccount?->automaticSendingEnabled())
+                    ->visible(fn (Message $record): bool => $record->status === Message::STATUS_FAILED && ! ($record->whatsappAccount?->automaticSendingEnabled() ?? false))
                     ->requiresConfirmation()
-                    ->modalDescription('سيتم طلب إعادة محاولة هذه الرسالة فقط دون تشغيل بقية الرسائل المعلقة.')
-                    ->action(function (Message $record, EngineMessageLifecycleService $messageLifecycleService): void {
-                        $whatsappAccount = $record->whatsappAccount;
+                    ->modalDescription('���� ��� ����� ������ ��� ������� ��� ��� ����� ���� ������� �������.')
+                    ->action(function (Message $record, EngineMessageLifecycleService $service): void {
+                        $record->loadMissing('whatsappAccount.client');
+                        $account = $record->whatsappAccount;
 
-                        if (! $whatsappAccount instanceof WhatsappAccount) {
+                        if (! $account instanceof WhatsappAccount) {
                             Notification::make()
-                                ->title('تعذر تنفيذ الطلب لأن حساب واتساب المرتبط غير متاح.')
+                                ->title('���� ����� ����� ��� ���� ������ ������� ��� ����.')
                                 ->danger()
                                 ->send();
 
                             return;
                         }
 
-                        $result = $messageLifecycleService->retryFailedMessageSend($whatsappAccount, $record);
+                        $result = $service->retryFailedMessageSend($account, $record);
 
                         if (! $result['ok']) {
                             Notification::make()
@@ -313,9 +318,9 @@ class MessageResource extends Resource
                         }
 
                         Notification::make()
-                            ->title('تم طلب إعادة محاولة الرسالة بنجاح.')
-                            ->body('ستتم معالجة هذه الرسالة فقط مرة أخرى دون تشغيل بقية الرسائل المعلقة.')
                             ->success()
+                            ->title('�� ��� ����� ������ ������� �����.')
+                            ->body('���� ������ ��� ������� ��� ��� ���� ��� ����� ���� ������� �������.')
                             ->send();
                     }),
                 ViewAction::make()->slideOver(),
@@ -360,12 +365,6 @@ class MessageResource extends Resource
         return Message::statusLabels()[$state] ?? ($state ?: '-');
     }
 
-    public static function sendingModeLabel(?bool $state): string
-    {
-        return $state
-            ? 'تلقائي - من 15 إلى 30 ثانية'
-            : 'يدوي';
-    }
     protected static function typeLabel(?string $state): string
     {
         return Message::typeLabels()[$state] ?? ($state ?: '-');
@@ -407,6 +406,64 @@ class MessageResource extends Resource
         };
     }
 
+    public static function selectedWhatsappAccountFromRequest(): ?WhatsappAccount
+    {
+        $selectedAccountId = request()->integer('whatsapp_account_id');
+
+        if ($selectedAccountId <= 0) {
+            return null;
+        }
+
+        return WhatsappAccount::query()
+            ->with('client')
+            ->find($selectedAccountId);
+    }
+
+    protected static function canShowManualSendAction(Message $record): bool
+    {
+        $account = $record->whatsappAccount;
+
+        if (! $account instanceof WhatsappAccount) {
+            return false;
+        }
+
+        if ($account->automaticSendingEnabled()) {
+            return false;
+        }
+
+        if (in_array($record->status, [Message::STATUS_SENT, Message::STATUS_DELIVERED, Message::STATUS_READ, Message::STATUS_FAILED], true)) {
+            return false;
+        }
+
+        if ($record->status === Message::STATUS_QUEUED && $record->manual_send_requested) {
+            return false;
+        }
+
+        return in_array($record->status, [Message::STATUS_PENDING, Message::STATUS_QUEUED], true);
+    }
+
+    protected static function manualSendFailureMessage(string $code): string
+    {
+        return match ($code) {
+            'automatic_enabled' => 'الإرسال التلقائي مفعل لهذا الحساب.',
+            'session_not_connected' => 'حساب واتساب غير متصل.',
+            'requires_retry' => 'يجب إعادة محاولة الرسالة الفاشلة أولًا.',
+            'already_requested' => '�� ��� ����� ��� ������� ������.',
+            'already_sent' => 'تم إرسال هذه الرسالة بالفعل.',
+            default => '���� ��� ������� ���� �������.',
+        };
+    }
+
+    protected static function manualSendFailureBody(string $code): ?string
+    {
+        return match ($code) {
+            'automatic_enabled' => '������� ��� ������� ��� ����� ���� ������� �������� ������� ���� ������.',
+            'session_not_connected' => 'لا يمكن إرسال الرسالة الآن لأن حساب واتساب غير متصل.',
+            'requires_retry' => 'هذه الرسالة فشلت سابقًا، لذلك يجب استخدام إجراء إعادة المحاولة.',
+            default => null,
+        };
+    }
+
     protected static function formatJsonValue(mixed $state): string
     {
         if ($state === null || $state === '') {
@@ -428,51 +485,5 @@ class MessageResource extends Resource
         }
 
         return (string) $state;
-    }
-    public static function selectedWhatsappAccountFromRequest(): ?WhatsappAccount
-    {
-        $whatsappAccountId = request()->integer('whatsapp_account_id');
-
-        if ($whatsappAccountId <= 0) {
-            return null;
-        }
-
-        return WhatsappAccount::query()->with('client')->find($whatsappAccountId);
-    }
-
-    protected static function canShowManualSendAction(Message $record): bool
-    {
-        $whatsappAccount = $record->whatsappAccount;
-
-        if (! $whatsappAccount instanceof WhatsappAccount || $whatsappAccount->automaticSendingEnabled()) {
-            return false;
-        }
-
-        return in_array($record->status, [
-            Message::STATUS_PENDING,
-            Message::STATUS_QUEUED,
-        ], true);
-    }
-
-    protected static function manualSendFailureMessage(string $code): string
-    {
-        return match ($code) {
-            'automatic_enabled' => 'الإرسال التلقائي مفعل لهذا الحساب.',
-            'session_not_connected' => 'حساب واتساب غير متصل.',
-            'requires_retry' => 'يجب إعادة محاولة الرسالة الفاشلة أولًا.',
-            'already_requested' => 'تم طلب إرسال هذه الرسالة بالفعل.',
-            'already_sent' => 'تم إرسال هذه الرسالة بالفعل.',
-            default => 'تعذر طلب الإرسال لهذه الرسالة.',
-        };
-    }
-
-    protected static function manualSendFailureBody(string $code): ?string
-    {
-        return match ($code) {
-            'automatic_enabled' => 'يُستخدم هذا الإجراء فقط عندما يكون الإرسال التلقائي متوقفًا لهذا الحساب.',
-            'session_not_connected' => 'لا يمكن إرسال الرسالة الآن لأن حساب واتساب غير متصل.',
-            'requires_retry' => 'هذه الرسالة فشلت سابقًا، لذلك يجب استخدام إجراء إعادة المحاولة.',
-            default => null,
-        };
     }
 }

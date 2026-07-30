@@ -25,8 +25,12 @@ class EngineSessionQueuedMessagesController extends Controller
             ], 422);
         }
 
+        $validated = $request->validate([
+            'mode' => ['nullable', 'string', 'in:manual,automatic'],
+        ]);
+
         $limit = $service->normalizeLimit((int) $request->integer('limit', 10));
-        $messages = $service->listQueuedMessages($whatsappAccount, $limit);
+        $messages = $service->listQueuedMessages($whatsappAccount, $limit, $validated['mode'] ?? null);
 
         return response()->json([
             'success' => true,
@@ -38,6 +42,7 @@ class EngineSessionQueuedMessagesController extends Controller
                 'body' => $message->body,
                 'payload' => $message->payload,
                 'status' => $message->status,
+                'manual_send_requested' => (bool) $message->manual_send_requested,
                 'created_at' => $message->created_at?->toISOString(),
                 'updated_at' => $message->updated_at?->toISOString(),
             ])->values(),

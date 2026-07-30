@@ -13,6 +13,9 @@ class ViewWhatsappAccount extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            WhatsappAccountResource::makeEnableAutomaticSendingAction(),
+            WhatsappAccountResource::makeDisableAutomaticSendingAction(),
+            WhatsappAccountResource::makeViewMessagesAction(),
             WhatsappAccountResource::makeGeneratePairingTokenAction(),
             WhatsappAccountResource::makeRevokePairingTokenAction(),
             EditAction::make(),

@@ -13,9 +13,20 @@ use Illuminate\Support\Facades\DB;
 
 class EngineMessageLifecycleService
 {
+    public const CLAIM_MODE_MANUAL = 'manual';
+    public const CLAIM_MODE_AUTOMATIC = 'automatic';
+
     public function normalizeLimit(int $limit): int
     {
         return max(1, min($limit, 50));
+    }
+
+    public function normalizeClaimMode(?string $mode): string
+    {
+        return match ($mode) {
+            self::CLAIM_MODE_AUTOMATIC => self::CLAIM_MODE_AUTOMATIC,
+            default => self::CLAIM_MODE_MANUAL,
+        };
     }
 
     public function processingAccountError(WhatsappAccount $whatsappAccount): ?string
@@ -53,6 +64,7 @@ class EngineMessageLifecycleService
                 'body',
                 'payload',
                 'status',
+                'manual_send_requested',
                 'scheduled_at',
                 'created_at',
             ]);
@@ -61,9 +73,9 @@ class EngineMessageLifecycleService
     /**
      * @return Collection<int, Message>
      */
-    public function listQueuedMessages(WhatsappAccount $whatsappAccount, int $limit): Collection
+    public function listQueuedMessages(WhatsappAccount $whatsappAccount, int $limit, ?string $mode = null): Collection
     {
-        return $this->queuedMessagesQuery($whatsappAccount)
+        return $this->queuedMessagesQuery($whatsappAccount, $mode)
             ->orderBy('id')
             ->limit($this->normalizeLimit($limit))
             ->get([
@@ -74,6 +86,7 @@ class EngineMessageLifecycleService
                 'body',
                 'payload',
                 'status',
+                'manual_send_requested',
                 'created_at',
                 'updated_at',
             ]);
@@ -89,39 +102,265 @@ class EngineMessageLifecycleService
     /**
      * @return array{message: Message, attempt: MessageAttempt}|null
      */
-    public function claimMessage(WhatsappAccount $whatsappAccount, Message $message): ?array
+    public function claimMessage(WhatsappAccount $whatsappAccount, Message $message, ?string $mode = null): ?array
     {
-        return DB::transaction(function () use ($whatsappAccount, $message): ?array {
-            $affected = $this->pendingMessagesQuery($whatsappAccount)
-                ->whereKey($message->getKey())
-                ->update([
-                    'status' => Message::STATUS_QUEUED,
-                    'updated_at' => now(),
-                ]);
+        $claimMode = $this->normalizeClaimMode($mode);
 
-            if ($affected === 0) {
-                return null;
+        if ($mode === self::CLAIM_MODE_AUTOMATIC && ! $whatsappAccount->automaticSendingEnabled()) {
+            return null;
+        }
+
+        if ($mode === self::CLAIM_MODE_MANUAL && ! $message->manual_send_requested) {
+            return null;
+        }
+
+        return DB::transaction(function () use ($whatsappAccount, $message, $claimMode): ?array {
+            return $this->claimPendingMessageWithinTransaction($whatsappAccount, $message, $claimMode);
+        });
+    }
+
+    /**
+     * @return array{ok: bool, code: string, message: string, record: Message|null, attempt: MessageAttempt|null}
+     */
+    public function requestManualMessageSend(WhatsappAccount $whatsappAccount, Message $message): array
+    {
+        if (! $this->messageBelongsToAccount($whatsappAccount, $message)) {
+            return [
+                'ok' => false,
+                'code' => 'not_found',
+                'message' => 'Message not found.',
+                'record' => null,
+                'attempt' => null,
+            ];
+        }
+
+        if ($error = $this->processingAccountError($whatsappAccount)) {
+            return [
+                'ok' => false,
+                'code' => 'account_invalid',
+                'message' => $error,
+                'record' => null,
+                'attempt' => null,
+            ];
+        }
+
+        if ($whatsappAccount->automaticSendingEnabled()) {
+            return [
+                'ok' => false,
+                'code' => 'automatic_enabled',
+                'message' => 'Automatic sending is enabled for this WhatsApp account.',
+                'record' => null,
+                'attempt' => null,
+            ];
+        }
+
+        if ($whatsappAccount->status !== WhatsappAccount::STATUS_CONNECTED) {
+            return [
+                'ok' => false,
+                'code' => 'session_not_connected',
+                'message' => 'WhatsApp account is not connected.',
+                'record' => null,
+                'attempt' => null,
+            ];
+        }
+
+        return DB::transaction(function () use ($whatsappAccount, $message): array {
+            /** @var Message|null $lockedMessage */
+            $lockedMessage = $this->baseScopedQuery($whatsappAccount)
+                ->whereKey($message->getKey())
+                ->lockForUpdate()
+                ->first();
+
+            if (! $lockedMessage) {
+                return [
+                    'ok' => false,
+                    'code' => 'not_found',
+                    'message' => 'Message not found.',
+                    'record' => null,
+                    'attempt' => null,
+                ];
             }
 
-            $attemptNumber = MessageAttempt::query()
-                ->where('message_id', $message->id)
-                ->lockForUpdate()
-                ->count() + 1;
+            if (in_array($lockedMessage->status, [Message::STATUS_SENT, Message::STATUS_DELIVERED, Message::STATUS_READ], true)) {
+                return [
+                    'ok' => false,
+                    'code' => 'already_sent',
+                    'message' => 'Message was already sent.',
+                    'record' => $lockedMessage,
+                    'attempt' => null,
+                ];
+            }
 
-            $attempt = MessageAttempt::query()->create([
-                'message_id' => $message->id,
-                'attempt_number' => $attemptNumber,
-                'status' => MessageAttempt::STATUS_QUEUED,
-                'response_payload' => null,
-                'error_message' => null,
-                'attempted_at' => now(),
-            ]);
+            if ($lockedMessage->status === Message::STATUS_FAILED) {
+                return [
+                    'ok' => false,
+                    'code' => 'requires_retry',
+                    'message' => 'Failed messages must be returned to pending before manual send.',
+                    'record' => $lockedMessage,
+                    'attempt' => null,
+                ];
+            }
 
-            $message->refresh();
+            if ($lockedMessage->status === Message::STATUS_QUEUED) {
+                if ($lockedMessage->manual_send_requested) {
+                    return [
+                        'ok' => false,
+                        'code' => 'already_requested',
+                        'message' => 'Manual send was already requested for this message.',
+                        'record' => $lockedMessage,
+                        'attempt' => $this->latestAttempt($lockedMessage),
+                    ];
+                }
+
+                $lockedMessage->forceFill([
+                    'manual_send_requested' => true,
+                    'updated_at' => now(),
+                ])->save();
+
+                $lockedMessage->refresh();
+
+                return [
+                    'ok' => true,
+                    'code' => 'queued_for_manual_send',
+                    'message' => 'Message queued for manual send.',
+                    'record' => $lockedMessage,
+                    'attempt' => $this->latestAttempt($lockedMessage),
+                ];
+            }
+
+            if ($lockedMessage->status !== Message::STATUS_PENDING) {
+                return [
+                    'ok' => false,
+                    'code' => 'not_sendable',
+                    'message' => 'Message is not sendable.',
+                    'record' => $lockedMessage,
+                    'attempt' => null,
+                ];
+            }
+
+            $result = $this->claimPendingMessageWithinTransaction($whatsappAccount, $lockedMessage, self::CLAIM_MODE_MANUAL);
+
+            if (! $result) {
+                return [
+                    'ok' => false,
+                    'code' => 'not_claimable',
+                    'message' => 'Message is not claimable.',
+                    'record' => $lockedMessage,
+                    'attempt' => null,
+                ];
+            }
 
             return [
-                'message' => $message,
-                'attempt' => $attempt,
+                'ok' => true,
+                'code' => 'queued_for_manual_send',
+                'message' => 'Message queued for manual send.',
+                'record' => $result['message'],
+                'attempt' => $result['attempt'],
+            ];
+        });
+    }
+
+    /**
+     * @return array{ok: bool, code: string, message: string, record: Message|null, attempt: MessageAttempt|null}
+     */
+    public function retryFailedMessageSend(WhatsappAccount $whatsappAccount, Message $message): array
+    {
+        if (! $this->messageBelongsToAccount($whatsappAccount, $message)) {
+            return [
+                'ok' => false,
+                'code' => 'not_found',
+                'message' => 'Message not found.',
+                'record' => null,
+                'attempt' => null,
+            ];
+        }
+
+        if ($error = $this->processingAccountError($whatsappAccount)) {
+            return [
+                'ok' => false,
+                'code' => 'account_invalid',
+                'message' => $error,
+                'record' => null,
+                'attempt' => null,
+            ];
+        }
+
+        if ($whatsappAccount->automaticSendingEnabled()) {
+            return [
+                'ok' => false,
+                'code' => 'automatic_enabled',
+                'message' => 'Automatic sending is enabled for this WhatsApp account.',
+                'record' => null,
+                'attempt' => null,
+            ];
+        }
+
+        if ($whatsappAccount->status !== WhatsappAccount::STATUS_CONNECTED) {
+            return [
+                'ok' => false,
+                'code' => 'session_not_connected',
+                'message' => 'WhatsApp account is not connected.',
+                'record' => null,
+                'attempt' => null,
+            ];
+        }
+
+        return DB::transaction(function () use ($whatsappAccount, $message): array {
+            /** @var Message|null $lockedMessage */
+            $lockedMessage = $this->baseScopedQuery($whatsappAccount)
+                ->whereKey($message->getKey())
+                ->lockForUpdate()
+                ->first();
+
+            if (! $lockedMessage) {
+                return [
+                    'ok' => false,
+                    'code' => 'not_found',
+                    'message' => 'Message not found.',
+                    'record' => null,
+                    'attempt' => null,
+                ];
+            }
+
+            if ($lockedMessage->status !== Message::STATUS_FAILED) {
+                return [
+                    'ok' => false,
+                    'code' => 'not_failed',
+                    'message' => 'Message is not failed.',
+                    'record' => $lockedMessage,
+                    'attempt' => $this->latestAttempt($lockedMessage),
+                ];
+            }
+
+            $lockedMessage->forceFill([
+                'status' => Message::STATUS_PENDING,
+                'manual_send_requested' => false,
+                'failed_at' => null,
+                'error_message' => null,
+                'sent_at' => null,
+                'external_message_id' => null,
+            ])->save();
+
+            $lockedMessage->refresh();
+
+            $result = $this->claimPendingMessageWithinTransaction($whatsappAccount, $lockedMessage, self::CLAIM_MODE_MANUAL);
+
+            if (! $result) {
+                return [
+                    'ok' => false,
+                    'code' => 'not_claimable',
+                    'message' => 'Message is not claimable.',
+                    'record' => $lockedMessage,
+                    'attempt' => null,
+                ];
+            }
+
+            return [
+                'ok' => true,
+                'code' => 'queued_for_manual_send',
+                'message' => 'Message queued for manual send.',
+                'record' => $result['message'],
+                'attempt' => $result['attempt'],
             ];
         });
     }
@@ -145,6 +384,7 @@ class EngineMessageLifecycleService
                 ->whereKey($message->getKey())
                 ->update([
                     'status' => Message::STATUS_SENT,
+                    'manual_send_requested' => false,
                     'sent_at' => $sentAt,
                     'external_message_id' => $externalMessageId,
                     'updated_at' => $sentAt,
@@ -199,6 +439,7 @@ class EngineMessageLifecycleService
                 ->whereKey($message->getKey())
                 ->update([
                     'status' => Message::STATUS_FAILED,
+                    'manual_send_requested' => false,
                     'failed_at' => $failedAt,
                     'error_message' => $errorMessage,
                     'updated_at' => $failedAt,
@@ -251,10 +492,20 @@ class EngineMessageLifecycleService
             });
     }
 
-    protected function queuedMessagesQuery(WhatsappAccount $whatsappAccount): Builder
+    protected function queuedMessagesQuery(WhatsappAccount $whatsappAccount, ?string $mode = null): Builder
     {
-        return $this->baseScopedQuery($whatsappAccount)
+        $query = $this->baseScopedQuery($whatsappAccount)
             ->where('status', Message::STATUS_QUEUED);
+
+        if ($mode === self::CLAIM_MODE_AUTOMATIC && ! $whatsappAccount->automaticSendingEnabled()) {
+            $query->whereRaw('1 = 0');
+        }
+
+        if ($mode === self::CLAIM_MODE_MANUAL) {
+            $query->where('manual_send_requested', true);
+        }
+
+        return $query;
     }
 
     /**
@@ -298,5 +549,53 @@ class EngineMessageLifecycleService
             'error_message' => $errorMessage,
             'attempted_at' => $attemptedAt,
         ]);
+    }
+
+    /**
+     * @return array{message: Message, attempt: MessageAttempt}|null
+     */
+    protected function claimPendingMessageWithinTransaction(WhatsappAccount $whatsappAccount, Message $message, string $mode): ?array
+    {
+        $affected = $this->pendingMessagesQuery($whatsappAccount)
+            ->whereKey($message->getKey())
+            ->update([
+                'status' => Message::STATUS_QUEUED,
+                'manual_send_requested' => $mode === self::CLAIM_MODE_MANUAL,
+                'updated_at' => now(),
+            ]);
+
+        if ($affected === 0) {
+            return null;
+        }
+
+        $attemptNumber = MessageAttempt::query()
+            ->where('message_id', $message->id)
+            ->lockForUpdate()
+            ->count() + 1;
+
+        $attempt = MessageAttempt::query()->create([
+            'message_id' => $message->id,
+            'attempt_number' => $attemptNumber,
+            'status' => MessageAttempt::STATUS_QUEUED,
+            'response_payload' => null,
+            'error_message' => null,
+            'attempted_at' => now(),
+        ]);
+
+        $message->refresh();
+
+        return [
+            'message' => $message,
+            'attempt' => $attempt,
+        ];
+    }
+
+    protected function latestAttempt(Message $message): ?MessageAttempt
+    {
+        return MessageAttempt::query()
+            ->where('message_id', $message->id)
+            ->orderByDesc('attempt_number')
+            ->orderByDesc('id')
+            ->first();
     }
 }

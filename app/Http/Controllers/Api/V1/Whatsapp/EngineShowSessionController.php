@@ -23,6 +23,7 @@ class EngineShowSessionController extends Controller
                 'is_active' => $whatsappAccount->is_active,
                 'client_is_active' => (bool) $whatsappAccount->client?->is_active,
                 'session_desired_state' => $whatsappAccount->session_desired_state,
+                'automatic_sending_enabled' => (bool) $whatsappAccount->automatic_sending_enabled,
                 'status' => $whatsappAccount->status,
                 'start_requested_at' => $whatsappAccount->start_requested_at?->toISOString(),
                 'stop_requested_at' => $whatsappAccount->stop_requested_at?->toISOString(),

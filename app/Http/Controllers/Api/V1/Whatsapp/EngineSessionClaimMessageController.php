@@ -7,10 +7,12 @@ use App\Models\Message;
 use App\Models\WhatsappAccount;
 use App\Services\Whatsapp\EngineMessageLifecycleService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class EngineSessionClaimMessageController extends Controller
 {
     public function __invoke(
+        Request $request,
         WhatsappAccount $whatsappAccount,
         Message $message,
         EngineMessageLifecycleService $service,
@@ -31,12 +33,20 @@ class EngineSessionClaimMessageController extends Controller
             ], 422);
         }
 
-        $result = $service->claimMessage($whatsappAccount, $message);
+        $validated = $request->validate([
+            'mode' => ['nullable', 'string', 'in:manual,automatic'],
+        ]);
+
+        $requestedMode = $validated['mode'] ?? null;
+        $mode = $service->normalizeClaimMode($requestedMode);
+        $result = $service->claimMessage($whatsappAccount, $message, $requestedMode);
 
         if (! $result) {
             return response()->json([
                 'success' => false,
-                'message' => 'Message is not claimable.',
+                'message' => $mode === EngineMessageLifecycleService::CLAIM_MODE_AUTOMATIC
+                    ? 'Automatic sending is disabled or the message is not claimable.'
+                    : 'Message is not claimable.',
             ], 409);
         }
 

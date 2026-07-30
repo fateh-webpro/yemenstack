@@ -30,6 +30,7 @@ class WhatsappAccount extends Model
         'phone_number',
         'session_name',
         'session_desired_state',
+        'automatic_sending_enabled',
         'start_requested_at',
         'stop_requested_at',
         'status',
@@ -42,6 +43,7 @@ class WhatsappAccount extends Model
     protected $casts = [
         'start_requested_at' => 'datetime',
         'stop_requested_at' => 'datetime',
+        'automatic_sending_enabled' => 'boolean',
         'last_seen_at' => 'datetime',
         'qr_expires_at' => 'datetime',
         'is_active' => 'boolean',
@@ -56,6 +58,10 @@ class WhatsappAccount extends Model
 
             if (blank($whatsappAccount->session_desired_state)) {
                 $whatsappAccount->session_desired_state = self::SESSION_DESIRED_STOPPED;
+            }
+
+            if ($whatsappAccount->automatic_sending_enabled === null) {
+                $whatsappAccount->automatic_sending_enabled = false;
             }
         });
     }
@@ -73,21 +79,21 @@ class WhatsappAccount extends Model
     public static function statusLabels(): array
     {
         return [
-            self::STATUS_DISCONNECTED => 'غير متصل',
-            self::STATUS_QR_REQUIRED => 'بانتظار مسح رمز QR',
-            self::STATUS_CONNECTING => 'جارٍ الاتصال',
-            self::STATUS_AUTHENTICATED => 'تم التحقق من الحساب',
-            self::STATUS_CONNECTED => 'متصل',
-            self::STATUS_LOGGED_OUT => 'تم تسجيل الخروج',
-            self::STATUS_ERROR => 'خطأ في الاتصال',
+            self::STATUS_DISCONNECTED => 'ط·ط›ط¸ظ¹ط·آ± ط¸â€¦ط·ع¾ط·آµط¸â€‍',
+            self::STATUS_QR_REQUIRED => 'ط·آ¨ط·آ§ط¸â€ ط·ع¾ط·آ¸ط·آ§ط·آ± ط¸â€¦ط·آ³ط·آ­ ط·آ±ط¸â€¦ط·آ² QR',
+            self::STATUS_CONNECTING => 'ط·آ¬ط·آ§ط·آ±ط¸ع† ط·آ§ط¸â€‍ط·آ§ط·ع¾ط·آµط·آ§ط¸â€‍',
+            self::STATUS_AUTHENTICATED => 'ط·ع¾ط¸â€¦ ط·آ§ط¸â€‍ط·ع¾ط·آ­ط¸â€ڑط¸â€ڑ ط¸â€¦ط¸â€  ط·آ§ط¸â€‍ط·آ­ط·آ³ط·آ§ط·آ¨',
+            self::STATUS_CONNECTED => 'ط¸â€¦ط·ع¾ط·آµط¸â€‍',
+            self::STATUS_LOGGED_OUT => 'ط·ع¾ط¸â€¦ ط·ع¾ط·آ³ط·آ¬ط¸ظ¹ط¸â€‍ ط·آ§ط¸â€‍ط·آ®ط·آ±ط¸ث†ط·آ¬',
+            self::STATUS_ERROR => 'ط·آ®ط·آ·ط·آ£ ط¸ظ¾ط¸ظ¹ ط·آ§ط¸â€‍ط·آ§ط·ع¾ط·آµط·آ§ط¸â€‍',
         ];
     }
 
     public static function desiredStateLabels(): array
     {
         return [
-            self::SESSION_DESIRED_RUNNING => 'مطلوب التشغيل',
-            self::SESSION_DESIRED_STOPPED => 'متوقف إداريًا',
+            self::SESSION_DESIRED_RUNNING => 'ط¸â€¦ط·آ·ط¸â€‍ط¸ث†ط·آ¨ ط·آ§ط¸â€‍ط·ع¾ط·آ´ط·ط›ط¸ظ¹ط¸â€‍',
+            self::SESSION_DESIRED_STOPPED => 'ط¸â€¦ط·ع¾ط¸ث†ط¸â€ڑط¸ظ¾ ط·آ¥ط·آ¯ط·آ§ط·آ±ط¸ظ¹ط¸â€¹ط·آ§',
         ];
     }
 
@@ -133,6 +139,11 @@ class WhatsappAccount extends Model
     public function wantsSessionStopped(): bool
     {
         return $this->session_desired_state === self::SESSION_DESIRED_STOPPED;
+    }
+
+    public function automaticSendingEnabled(): bool
+    {
+        return (bool) $this->automatic_sending_enabled;
     }
 
     public function client(): BelongsTo
