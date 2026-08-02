@@ -11,6 +11,7 @@ const createHarness = (options = {}) => {
     fetchPendingMessages: [],
     claimMessage: [],
     fetchQueuedMessages: [],
+    deferMessage: [],
     markMessageSent: [],
     markMessageFailed: [],
     getNumberId: [],
@@ -38,13 +39,15 @@ const createHarness = (options = {}) => {
 
   const queuedMessages = options.queuedMessages || [];
   const manualQueuedMessages = options.manualQueuedMessages || queuedMessages;
+  const automaticPendingMessages = options.pendingMessages || [];
+  const manualPendingMessages = options.manualPendingMessages || [];
 
   const fakeLaravelClient = options.laravelMessageClient || {
-    async fetchPendingMessages(limit) {
-      calls.fetchPendingMessages.push({ limit });
+    async fetchPendingMessages(limit, options = {}) {
+      calls.fetchPendingMessages.push({ limit, options });
       return {
         success: true,
-        data: options.pendingMessages || [],
+        data: options.mode === 'manual' ? manualPendingMessages : automaticPendingMessages,
         meta: { limit },
       };
     },
@@ -66,6 +69,10 @@ const createHarness = (options = {}) => {
         success: true,
         data: options.mode === 'manual' ? manualQueuedMessages : queuedMessages,
       };
+    },
+    async deferMessage(messageId, payload) {
+      calls.deferMessage.push({ messageId, payload });
+      return { success: true, data: { id: messageId, status: 'pending' } };
     },
     async markMessageSent(messageId, payload) {
       calls.markMessageSent.push({ messageId, payload });
@@ -157,7 +164,7 @@ test('worker runCycle uses the central session message client for its own accoun
 
   assert.deepEqual(harness.calls.createMessageClient, [{ accountId: 701, sessionName: 'wa_worker_701' }]);
   assert.deepEqual(harness.calls.fetchQueuedMessages, [{ limit: 1, options: { mode: 'automatic' } }]);
-  assert.deepEqual(harness.calls.fetchPendingMessages, [{ limit: 1 }]);
+  assert.deepEqual(harness.calls.fetchPendingMessages, [{ limit: 1, options: { mode: 'automatic' } }]);
   assert.deepEqual(harness.calls.claimMessage, [{ messageId: 1, payload: { mode: 'automatic' } }]);
   assert.equal(harness.calls.sendMessage.length, 1);
   assert.equal(harness.calls.markMessageSent.length, 1);
@@ -196,17 +203,18 @@ test('runCycle is not re-entrant and returns the same promise while active', asy
   await first;
 });
 
-test('manual mode does not claim pending messages automatically', async () => {
+test('manual mode does not claim pending messages automatically without a manual request', async () => {
   const harness = createHarness({
     automaticSendingEnabled: false,
     pendingMessages: [{ id: 31, recipient: '967700000031', body: 'pending manual', status: 'pending' }],
+    manualPendingMessages: [],
     queuedMessages: [],
   });
 
   await harness.worker.start();
 
   assert.deepEqual(harness.calls.fetchQueuedMessages, [{ limit: 1, options: { mode: 'manual' } }]);
-  assert.equal(harness.calls.fetchPendingMessages.length, 0);
+  assert.deepEqual(harness.calls.fetchPendingMessages, [{ limit: 1, options: { mode: 'manual' } }]);
   assert.equal(harness.calls.claimMessage.length, 0);
   assert.equal(harness.calls.sendMessage.length, 0);
 });
@@ -257,6 +265,7 @@ test('recoverable session errors keep the queued message deferred and stop repea
 
   await harness.worker.start();
 
+  assert.equal(harness.calls.deferMessage.length, 1);
   assert.equal(harness.calls.markMessageFailed.length, 0);
   assert.equal(harness.calls.markMessageSent.length, 0);
   assert.equal(harness.worker.getSnapshot().processedCount, 1);
@@ -391,18 +400,35 @@ test('manual mode leaves legacy queued messages untouched when manual send was n
     automaticSendingEnabled: false,
     queuedMessages: [{ id: 51, recipient: '967700000051', body: 'legacy queued automatic' }],
     manualQueuedMessages: [],
+    manualPendingMessages: [],
   });
 
   await harness.worker.start();
 
   assert.deepEqual(harness.calls.fetchQueuedMessages, [{ limit: 1, options: { mode: 'manual' } }]);
-  assert.equal(harness.calls.fetchPendingMessages.length, 0);
+  assert.deepEqual(harness.calls.fetchPendingMessages, [{ limit: 1, options: { mode: 'manual' } }]);
   assert.equal(harness.calls.claimMessage.length, 0);
   assert.equal(harness.calls.sendMessage.length, 0);
   assert.equal(harness.calls.markMessageSent.length, 0);
   assert.equal(harness.calls.markMessageFailed.length, 0);
 });
 
+
+test('manual mode can reclaim a deferred pending message that was explicitly requested', async () => {
+  const harness = createHarness({
+    automaticSendingEnabled: false,
+    queuedMessages: [],
+    manualQueuedMessages: [],
+    manualPendingMessages: [{ id: 71, recipient: '967700000071', body: 'manual deferred', status: 'pending' }],
+  });
+
+  await harness.worker.start();
+
+  assert.deepEqual(harness.calls.fetchPendingMessages, [{ limit: 1, options: { mode: 'manual' } }]);
+  assert.deepEqual(harness.calls.claimMessage, [{ messageId: 71, payload: { mode: 'manual' } }]);
+  assert.equal(harness.calls.sendMessage.length, 1);
+  assert.equal(harness.calls.markMessageSent.length, 1);
+});
 test('automatic mode does not send another message after the server disables automatic claims during the wait window', async () => {
   const harness = createHarness({
     queuedMessages: [{ id: 61, recipient: '967700000061', body: 'first automatic message' }],
@@ -417,8 +443,8 @@ test('automatic mode does not send another message after the server disables aut
       harness.calls.fetchQueuedMessages.push({ limit, options });
       return { success: true, data: [] };
     },
-    async fetchPendingMessages(limit) {
-      harness.calls.fetchPendingMessages.push({ limit });
+    async fetchPendingMessages(limit, options = {}) {
+      harness.calls.fetchPendingMessages.push({ limit, options });
       return { success: true, data: [{ id: 62, recipient: '967700000062', body: 'blocked pending' }] };
     },
     async claimMessage(messageId, payload = {}) {

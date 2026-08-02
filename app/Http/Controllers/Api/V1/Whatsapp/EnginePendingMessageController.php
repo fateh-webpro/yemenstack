@@ -22,8 +22,12 @@ class EnginePendingMessageController extends Controller
             ], 403);
         }
 
+        $validated = $request->validate([
+            'mode' => ['nullable', 'string', 'in:manual,automatic'],
+        ]);
+
         $limit = $service->normalizeLimit((int) $request->integer('limit', 10));
-        $messages = $service->listPendingMessages($whatsappAccount, $limit);
+        $messages = $service->listPendingMessages($whatsappAccount, $limit, $validated['mode'] ?? null);
 
         return response()->json([
             'success' => true,

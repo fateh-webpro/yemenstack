@@ -168,6 +168,28 @@ const sendQueuedMessage = async (client, message, options = {}) => {
         message: errorMessage,
       });
 
+      try {
+        await laravelMessageClient.deferMessage(message.id, {
+          error_message: errorMessage,
+          response_payload: buildFailurePayload(errorMessage, error, {
+            stage: sendStage,
+            recoverable_connection_error: true,
+            delivery_state: 'deferred_for_session_recovery',
+          }),
+          mode: 'real',
+          provider: 'whatsapp-web.js',
+          stage: sendStage,
+          deferred_at: failedAt,
+        });
+      } catch (deferError) {
+        activeLogger.error('Failed to defer queued message for session recovery.', {
+          service: 'whatsapp-gateway',
+          message_id: message?.id,
+          stage: sendStage,
+          message: deferError.message,
+        });
+      }
+
       return {
         success: false,
         failed: false,

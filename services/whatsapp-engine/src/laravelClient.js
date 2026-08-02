@@ -73,6 +73,7 @@ const buildQueuedMessagesUrl = (limit = config.fetchLimit, options = {}) => {
 
 const buildAccountStatusUrl = () => buildUrl(config.accountStatusPath);
 const buildClaimMessageUrl = (messageId) => buildUrl(config.claimMessagePathTemplate.replace(':id', String(messageId)));
+const buildDeferMessageUrl = (messageId) => buildUrl(`/api/v1/whatsapp/engine/messages/${encodeURIComponent(String(messageId))}/defer`);
 const buildMarkSentUrl = (messageId) => buildUrl(config.markSentPathTemplate.replace(':id', String(messageId)));
 const buildMarkFailedUrl = (messageId) => buildUrl(config.markFailedPathTemplate.replace(':id', String(messageId)));
 
@@ -98,6 +99,7 @@ const buildEngineSessionQueuedMessagesUrl = (accountId, limit = config.fetchLimi
 };
 
 const buildEngineSessionClaimMessageUrl = (accountId, messageId) => buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/messages/${encodeURIComponent(String(messageId))}/claim`);
+const buildEngineSessionDeferMessageUrl = (accountId, messageId) => buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/messages/${encodeURIComponent(String(messageId))}/defer`);
 const buildEngineSessionMarkSentUrl = (accountId, messageId) => buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/messages/${encodeURIComponent(String(messageId))}/mark-sent`);
 const buildEngineSessionMarkFailedUrl = (accountId, messageId) => buildUrl(`/api/v1/whatsapp/engine/sessions/${encodeURIComponent(ensureValidAccountId(accountId))}/messages/${encodeURIComponent(String(messageId))}/mark-failed`);
 
@@ -145,6 +147,10 @@ const createLaravelClient = ({ apiToken } = {}) => {
       ensureMessageToken();
       return requestLaravelJson(buildClaimMessageUrl(messageId), { method: 'POST', token: apiToken, body });
     },
+    deferMessage: async (messageId, extra = {}) => {
+      ensureMessageToken();
+      return requestLaravelJson(buildDeferMessageUrl(messageId), { method: 'POST', token: apiToken, body: extra });
+    },
     markMessageSent: async (messageId, extra = {}) => {
       ensureMessageToken();
       const body = Object.keys(extra).length > 0 ? extra : { mode: 'simulation' };
@@ -181,6 +187,10 @@ const createEngineSessionMessageClient = ({ internalToken, accountId } = {}) => 
       ensureCentralMessageClient();
       return requestLaravelJson(buildEngineSessionClaimMessageUrl(normalizedAccountId, messageId), { method: 'POST', token: internalToken, body });
     },
+    deferMessage: async (messageId, extra = {}) => {
+      ensureCentralMessageClient();
+      return requestLaravelJson(buildEngineSessionDeferMessageUrl(normalizedAccountId, messageId), { method: 'POST', token: internalToken, body: extra });
+    },
     markMessageSent: async (messageId, extra = {}) => {
       ensureCentralMessageClient();
       const body = Object.keys(extra).length > 0 ? extra : { mode: 'simulation' };
@@ -204,6 +214,7 @@ const createEngineSessionMessageClient = ({ internalToken, accountId } = {}) => 
 const fetchPendingMessages = async (limit = config.fetchLimit, options = {}) => createLaravelClient({ apiToken: config.engineApiToken }).fetchPendingMessages(limit, options);
 const fetchQueuedMessages = async (limit = config.fetchLimit, options = {}) => createLaravelClient({ apiToken: config.engineApiToken }).fetchQueuedMessages(limit, options);
 const claimMessage = async (messageId, body = {}) => createLaravelClient({ apiToken: config.engineApiToken }).claimMessage(messageId, body);
+const deferMessage = async (messageId, extra = {}) => createLaravelClient({ apiToken: config.engineApiToken }).deferMessage(messageId, extra);
 const markMessageSent = async (messageId, extra = {}) => createLaravelClient({ apiToken: config.engineApiToken }).markMessageSent(messageId, extra);
 const markMessageFailed = async (messageId, extra = {}) => createLaravelClient({ apiToken: config.engineApiToken }).markMessageFailed(messageId, extra);
 const updateWhatsappAccountStatus = async (status, extra = {}) => createLaravelClient({ apiToken: config.engineApiToken }).updateWhatsappAccountStatus(status, extra);
@@ -233,6 +244,7 @@ module.exports = {
   buildQueuedMessagesUrl,
   buildAccountStatusUrl,
   buildClaimMessageUrl,
+  buildDeferMessageUrl,
   buildMarkSentUrl,
   buildMarkFailedUrl,
   buildEngineSessionsUrl,
@@ -244,6 +256,7 @@ module.exports = {
   buildEngineSessionPendingMessagesUrl,
   buildEngineSessionQueuedMessagesUrl,
   buildEngineSessionClaimMessageUrl,
+  buildEngineSessionDeferMessageUrl,
   buildEngineSessionMarkSentUrl,
   buildEngineSessionMarkFailedUrl,
   requestLaravelJson,
@@ -252,6 +265,7 @@ module.exports = {
   fetchPendingMessages,
   fetchQueuedMessages,
   claimMessage,
+  deferMessage,
   markMessageSent,
   markMessageFailed,
   updateWhatsappAccountStatus,

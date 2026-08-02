@@ -51,9 +51,9 @@ class EngineMessageLifecycleService
     /**
      * @return Collection<int, Message>
      */
-    public function listPendingMessages(WhatsappAccount $whatsappAccount, int $limit): Collection
+    public function listPendingMessages(WhatsappAccount $whatsappAccount, int $limit, ?string $mode = null): Collection
     {
-        return $this->pendingMessagesQuery($whatsappAccount)
+        return $this->pendingMessagesQuery($whatsappAccount, $mode)
             ->orderBy('id')
             ->limit($this->normalizeLimit($limit))
             ->get([
@@ -106,11 +106,11 @@ class EngineMessageLifecycleService
     {
         $claimMode = $this->normalizeClaimMode($mode);
 
-        if ($mode === self::CLAIM_MODE_AUTOMATIC && ! $whatsappAccount->automaticSendingEnabled()) {
+        if ($claimMode === self::CLAIM_MODE_AUTOMATIC && ! $whatsappAccount->automaticSendingEnabled()) {
             return null;
         }
 
-        if ($mode === self::CLAIM_MODE_MANUAL && ! $message->manual_send_requested) {
+        if ($claimMode === self::CLAIM_MODE_MANUAL && ! $message->manual_send_requested) {
             return null;
         }
 
@@ -369,6 +369,54 @@ class EngineMessageLifecycleService
      * @param  array<string, mixed>  $validated
      * @return array{message: Message, attempt: MessageAttempt}|null
      */
+    public function deferQueuedMessage(WhatsappAccount $whatsappAccount, Message $message, array $validated = []): ?array
+    {
+        return DB::transaction(function () use ($whatsappAccount, $message, $validated): ?array {
+            $deferredAt = filled($validated['deferred_at'] ?? null)
+                ? Carbon::parse($validated['deferred_at'])
+                : now();
+
+            $responsePayload = $validated['response_payload'] ?? [
+                'mode' => $validated['mode'] ?? 'real',
+                'provider' => $validated['provider'] ?? 'whatsapp-web.js',
+                'error_message' => $validated['error_message'] ?? null,
+                'stage' => $validated['stage'] ?? null,
+                'note' => 'Message deferred for session recovery.',
+                'deferred_at' => $deferredAt->toISOString(),
+            ];
+
+            $affected = $this->queuedMessagesQuery($whatsappAccount)
+                ->whereKey($message->getKey())
+                ->update([
+                    'status' => Message::STATUS_PENDING,
+                    'updated_at' => $deferredAt,
+                ]);
+
+            if ($affected === 0) {
+                return null;
+            }
+
+            $attempt = $this->updateOrCreateAttempt(
+                message: $message,
+                status: MessageAttempt::STATUS_PENDING,
+                attemptedAt: $deferredAt,
+                responsePayload: $responsePayload,
+                errorMessage: null,
+            );
+
+            $message->refresh();
+
+            return [
+                'message' => $message,
+                'attempt' => $attempt,
+            ];
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @return array{message: Message, attempt: MessageAttempt}|null
+     */
     public function markMessageSent(WhatsappAccount $whatsappAccount, Message $message, array $validated): ?array
     {
         return DB::transaction(function () use ($whatsappAccount, $message, $validated): ?array {
@@ -481,15 +529,21 @@ class EngineMessageLifecycleService
             ->where('direction', Message::DIRECTION_OUTBOUND);
     }
 
-    protected function pendingMessagesQuery(WhatsappAccount $whatsappAccount): Builder
+    protected function pendingMessagesQuery(WhatsappAccount $whatsappAccount, ?string $mode = null): Builder
     {
-        return $this->baseScopedQuery($whatsappAccount)
+        $query = $this->baseScopedQuery($whatsappAccount)
             ->where('status', Message::STATUS_PENDING)
             ->where(function (Builder $query): void {
                 $query
                     ->whereNull('scheduled_at')
                     ->orWhere('scheduled_at', '<=', now());
             });
+
+        if ($mode === self::CLAIM_MODE_MANUAL) {
+            $query->where('manual_send_requested', true);
+        }
+
+        return $query;
     }
 
     protected function queuedMessagesQuery(WhatsappAccount $whatsappAccount, ?string $mode = null): Builder

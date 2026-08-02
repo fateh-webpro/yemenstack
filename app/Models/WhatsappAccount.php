@@ -79,21 +79,21 @@ class WhatsappAccount extends Model
     public static function statusLabels(): array
     {
         return [
-            self::STATUS_DISCONNECTED => 'ط·ط›ط¸ظ¹ط·آ± ط¸â€¦ط·ع¾ط·آµط¸â€‍',
-            self::STATUS_QR_REQUIRED => 'ط·آ¨ط·آ§ط¸â€ ط·ع¾ط·آ¸ط·آ§ط·آ± ط¸â€¦ط·آ³ط·آ­ ط·آ±ط¸â€¦ط·آ² QR',
-            self::STATUS_CONNECTING => 'ط·آ¬ط·آ§ط·آ±ط¸ع† ط·آ§ط¸â€‍ط·آ§ط·ع¾ط·آµط·آ§ط¸â€‍',
-            self::STATUS_AUTHENTICATED => 'ط·ع¾ط¸â€¦ ط·آ§ط¸â€‍ط·ع¾ط·آ­ط¸â€ڑط¸â€ڑ ط¸â€¦ط¸â€  ط·آ§ط¸â€‍ط·آ­ط·آ³ط·آ§ط·آ¨',
-            self::STATUS_CONNECTED => 'ط¸â€¦ط·ع¾ط·آµط¸â€‍',
-            self::STATUS_LOGGED_OUT => 'ط·ع¾ط¸â€¦ ط·ع¾ط·آ³ط·آ¬ط¸ظ¹ط¸â€‍ ط·آ§ط¸â€‍ط·آ®ط·آ±ط¸ث†ط·آ¬',
-            self::STATUS_ERROR => 'ط·آ®ط·آ·ط·آ£ ط¸ظ¾ط¸ظ¹ ط·آ§ط¸â€‍ط·آ§ط·ع¾ط·آµط·آ§ط¸â€‍',
+            self::STATUS_DISCONNECTED => "\u{063A}\u{064A}\u{0631} \u{0645}\u{062A}\u{0635}\u{0644}",
+            self::STATUS_QR_REQUIRED => "\u{0628}\u{0627}\u{0646}\u{062A}\u{0638}\u{0627}\u{0631} \u{0645}\u{0633}\u{062D} \u{0631}\u{0645}\u{0632} QR",
+            self::STATUS_CONNECTING => "\u{062C}\u{0627}\u{0631}\u{064D} \u{0627}\u{0644}\u{0627}\u{062A}\u{0635}\u{0627}\u{0644}",
+            self::STATUS_AUTHENTICATED => "\u{062A}\u{0645} \u{0627}\u{0644}\u{062A}\u{062D}\u{0642}\u{0642} \u{0645}\u{0646} \u{0627}\u{0644}\u{062D}\u{0633}\u{0627}\u{0628}",
+            self::STATUS_CONNECTED => "\u{0645}\u{062A}\u{0635}\u{0644}",
+            self::STATUS_LOGGED_OUT => "\u{062A}\u{0645} \u{062A}\u{0633}\u{062C}\u{064A}\u{0644} \u{0627}\u{0644}\u{062E}\u{0631}\u{0648}\u{062C}",
+            self::STATUS_ERROR => "\u{062E}\u{0637}\u{0623} \u{0641}\u{064A} \u{0627}\u{0644}\u{0627}\u{062A}\u{0635}\u{0627}\u{0644}",
         ];
     }
 
     public static function desiredStateLabels(): array
     {
         return [
-            self::SESSION_DESIRED_RUNNING => 'ط¸â€¦ط·آ·ط¸â€‍ط¸ث†ط·آ¨ ط·آ§ط¸â€‍ط·ع¾ط·آ´ط·ط›ط¸ظ¹ط¸â€‍',
-            self::SESSION_DESIRED_STOPPED => 'ط¸â€¦ط·ع¾ط¸ث†ط¸â€ڑط¸ظ¾ ط·آ¥ط·آ¯ط·آ§ط·آ±ط¸ظ¹ط¸â€¹ط·آ§',
+            self::SESSION_DESIRED_RUNNING => "\u{0645}\u{0637}\u{0644}\u{0648}\u{0628} \u{0627}\u{0644}\u{062A}\u{0634}\u{063A}\u{064A}\u{0644}",
+            self::SESSION_DESIRED_STOPPED => "\u{0645}\u{062A}\u{0648}\u{0642}\u{0641} \u{0625}\u{062F}\u{0627}\u{0631}\u{064A}\u{064B}\u{0627}",
         ];
     }
 
@@ -169,10 +169,5 @@ class WhatsappAccount extends Model
     public function messages(): HasMany
     {
         return $this->hasMany(Message::class);
-    }
-
-    public function webhookLogs(): HasMany
-    {
-        return $this->hasMany(WebhookLog::class);
     }
 }

@@ -32,6 +32,15 @@ class WhatsappSendingModeTest extends TestCase
         $this->assertFalse($account->automaticSendingEnabled());
     }
 
+    public function test_label_sources_return_clean_arabic_strings(): void
+    {
+        $this->assertSame(json_decode('"\u063A\u064A\u0631 \u0645\u062A\u0635\u0644"'), WhatsappAccount::statusLabels()[WhatsappAccount::STATUS_DISCONNECTED]);
+        $this->assertSame(json_decode('"\u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0645\u0633\u062D \u0631\u0645\u0632 QR"'), WhatsappAccount::statusLabels()[WhatsappAccount::STATUS_QR_REQUIRED]);
+        $this->assertSame(json_decode('"\u0645\u0637\u0644\u0648\u0628 \u0627\u0644\u062A\u0634\u063A\u064A\u0644"'), WhatsappAccount::desiredStateLabels()[WhatsappAccount::SESSION_DESIRED_RUNNING]);
+        $this->assertSame(json_decode('"\u0642\u064A\u062F \u0627\u0644\u0627\u0646\u062A\u0638\u0627\u0631"'), Message::statusLabels()[Message::STATUS_PENDING]);
+        $this->assertSame(json_decode('"\u062A\u0645\u062A \u0627\u0644\u0642\u0631\u0627\u0621\u0629"'), Message::statusLabels()[Message::STATUS_READ]);
+        $this->assertSame(json_decode('"\u0641\u064A \u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u0627\u0646\u062A\u0638\u0627\u0631"'), MessageAttempt::statusLabels()[MessageAttempt::STATUS_QUEUED]);
+    }
     public function test_engine_sessions_payload_exposes_automatic_sending_enabled(): void
     {
         $account = $this->createWhatsappAccount();
@@ -102,6 +111,52 @@ class WhatsappSendingModeTest extends TestCase
         ]);
     }
 
+    public function test_manual_pending_endpoint_only_returns_messages_requested_for_manual_send(): void
+    {
+        $account = $this->createWhatsappAccount();
+        $manualMessage = $this->createMessage($account, [
+            'manual_send_requested' => true,
+        ]);
+        $this->createMessage($account, [
+            'recipient' => '967700200201',
+            'manual_send_requested' => false,
+        ]);
+
+        $this->withToken($this->internalToken)
+            ->getJson("/api/v1/whatsapp/engine/sessions/{$account->id}/messages/pending?mode=manual")
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $manualMessage->id);
+    }
+
+    public function test_defer_endpoint_returns_queued_message_to_pending_without_clearing_manual_request(): void
+    {
+        $account = $this->createWhatsappAccount();
+        $message = $this->createQueuedMessageWithAttempt($account, true);
+
+        $this->withToken($this->internalToken)
+            ->postJson("/api/v1/whatsapp/engine/sessions/{$account->id}/messages/{$message->id}/defer", [
+                'mode' => 'real',
+                'provider' => 'whatsapp-web.js',
+                'stage' => 'send_message',
+                'error_message' => 'Attempted to use detached Frame',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.status', Message::STATUS_PENDING)
+            ->assertJsonPath('data.manual_send_requested', true)
+            ->assertJsonPath('data.attempt_status', MessageAttempt::STATUS_PENDING);
+
+        $this->assertDatabaseHas(Message::class, [
+            'id' => $message->id,
+            'status' => Message::STATUS_PENDING,
+            'manual_send_requested' => true,
+        ]);
+        $this->assertDatabaseHas(MessageAttempt::class, [
+            'message_id' => $message->id,
+            'attempt_number' => 1,
+            'status' => MessageAttempt::STATUS_PENDING,
+        ]);
+    }
     public function test_request_manual_message_send_claims_one_pending_message_and_marks_it_manual(): void
     {
         $service = app(EngineMessageLifecycleService::class);

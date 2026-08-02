@@ -159,13 +159,15 @@ class SessionMessageWorker {
 
         let messageToSend = queuedMessages[0] || null;
 
-        if (!messageToSend && automaticSendingEnabled) {
-          const pendingPayload = await laravelMessageClient.fetchPendingMessages(1);
+        if (!messageToSend) {
+          const pendingPayload = await laravelMessageClient.fetchPendingMessages(1, {
+            mode: sendingMode,
+          });
           const pendingMessages = Array.isArray(pendingPayload?.data) ? pendingPayload.data : [];
           const pendingMessage = pendingMessages[0] || null;
 
           if (pendingMessage) {
-            messageToSend = await this.claimPendingMessage(pendingMessage, laravelMessageClient, 'automatic');
+            messageToSend = await this.claimPendingMessage(pendingMessage, laravelMessageClient, sendingMode);
           }
         }
 
