@@ -266,6 +266,7 @@ class SessionMessageWorker {
     const result = await sendQueuedMessage(client, message, {
       logger: this.logger,
       laravelMessageClient,
+      accountId: this.accountId,
     });
 
     this.processedCount += 1;

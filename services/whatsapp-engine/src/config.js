@@ -16,6 +16,24 @@ const toBoolean = (value, fallback) => {
   return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
 };
 
+const toBooleanStrict = (value, fallback) => {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const normalized = String(value).toLowerCase();
+
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+};
+
 const maskToken = (token) => {
   if (!token) {
     return '';
@@ -76,7 +94,27 @@ const normalizeSendDelayRange = () => {
   return { min, max };
 };
 
+const normalizeTypingDelayRange = () => {
+  const defaultMin = 3000;
+  const defaultMax = 7000;
+  const parsedMin = toNumber(process.env.WHATSAPP_TYPING_DELAY_MIN_MS, defaultMin);
+  const parsedMax = toNumber(process.env.WHATSAPP_TYPING_DELAY_MAX_MS, defaultMax);
+
+  if (!Number.isInteger(parsedMin) || !Number.isInteger(parsedMax) || parsedMin < 0 || parsedMax < 0 || parsedMin > parsedMax) {
+    return {
+      min: defaultMin,
+      max: defaultMax,
+    };
+  }
+
+  return {
+    min: parsedMin,
+    max: parsedMax,
+  };
+};
+
 const sendDelayRange = normalizeSendDelayRange();
+const typingDelayRange = normalizeTypingDelayRange();
 
 const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -103,6 +141,9 @@ const config = {
   whatsappSendLimit: clamp(toNumber(process.env.WHATSAPP_SEND_LIMIT, 1), 1, 1),
   whatsappSendDelayMinMs: sendDelayRange.min,
   whatsappSendDelayMaxMs: sendDelayRange.max,
+  whatsappTypingIndicatorEnabled: toBooleanStrict(process.env.WHATSAPP_TYPING_INDICATOR_ENABLED, true),
+  whatsappTypingDelayMinMs: typingDelayRange.min,
+  whatsappTypingDelayMaxMs: typingDelayRange.max,
   whatsappRestartDelayMs: clamp(toNumber(process.env.WHATSAPP_RESTART_DELAY_MS, 3000), 1000, 60000),
   whatsappRestartTimeoutMs: clamp(toNumber(process.env.WHATSAPP_RESTART_TIMEOUT_MS, 60000), 10000, 180000),
   whatsappMaxRestartAttempts: clamp(toNumber(process.env.WHATSAPP_MAX_RESTART_ATTEMPTS, 3), 1, 10),
@@ -135,6 +176,9 @@ const getPublicConfig = () => ({
   whatsappSendLimit: config.whatsappSendLimit,
   whatsappSendDelayMinMs: config.whatsappSendDelayMinMs,
   whatsappSendDelayMaxMs: config.whatsappSendDelayMaxMs,
+  whatsappTypingIndicatorEnabled: config.whatsappTypingIndicatorEnabled,
+  whatsappTypingDelayMinMs: config.whatsappTypingDelayMinMs,
+  whatsappTypingDelayMaxMs: config.whatsappTypingDelayMaxMs,
   whatsappRestartDelayMs: config.whatsappRestartDelayMs,
   whatsappRestartTimeoutMs: config.whatsappRestartTimeoutMs,
   whatsappMaxRestartAttempts: config.whatsappMaxRestartAttempts,
