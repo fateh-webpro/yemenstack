@@ -1,10 +1,8 @@
 const logger = require('./logger');
-const { config } = require('./config');
 const { createLaravelClient } = require('./laravelClient');
 const { isRecoverableSessionError, getErrorMessage } = require('./sessionRecovery');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const postSendDelayMs = 2000;
 
 const normalizeRecipient = (value) => String(value || '').replace(/\D+/g, '');
 
@@ -38,63 +36,21 @@ const buildFailurePayload = (errorMessage, error, extra = {}) => ({
 });
 
 const createDefaultMessageClient = () => createLaravelClient({
-  apiToken: config.engineApiToken,
+  apiToken: require('./config').config.engineApiToken,
 });
-
-const calculateTypingDelayMs = (
-  minDelayMs = config.whatsappTypingDelayMinMs,
-  maxDelayMs = config.whatsappTypingDelayMaxMs,
-  randomFn = Math.random,
-) => {
-  if (!Number.isInteger(minDelayMs) || !Number.isInteger(maxDelayMs) || minDelayMs < 0 || maxDelayMs < minDelayMs) {
-    return config.whatsappTypingDelayMinMs;
-  }
-
-  if (minDelayMs === maxDelayMs) {
-    return minDelayMs;
-  }
-
-  return Math.floor(randomFn() * ((maxDelayMs - minDelayMs) + 1)) + minDelayMs;
-};
-
-const resolveTypingChat = async (client, chatId) => {
-  if (typeof client.getChatById !== 'function') {
-    return null;
-  }
-
-  return client.getChatById(chatId);
-};
-
-const clearTypingIndicator = async (chat) => {
-  if (!chat || typeof chat.clearState !== 'function') {
-    return;
-  }
-
-  await chat.clearState();
-};
 
 const sendQueuedMessage = async (client, message, options = {}) => {
   const activeLogger = options.logger || logger;
   const laravelMessageClient = options.laravelMessageClient || createDefaultMessageClient();
-  const wait = options.wait || delay;
   const actualRecipient = normalizeRecipient(message?.recipient);
   const body = message?.body ?? '';
-  const accountId = options.accountId ?? message?.whatsapp_account_id ?? null;
-  const typingIndicatorEnabled = options.typingIndicatorEnabled ?? config.whatsappTypingIndicatorEnabled;
-  const typingDelayMinMs = options.typingDelayMinMs ?? config.whatsappTypingDelayMinMs;
-  const typingDelayMaxMs = options.typingDelayMaxMs ?? config.whatsappTypingDelayMaxMs;
-  const postSendDelay = options.postSendDelayMs ?? postSendDelayMs;
   let sendStage = 'resolve_number';
-  let typingChat = null;
-  let clearTypingState = false;
 
   activeLogger.info('Sending queued WhatsApp message.', {
     service: 'whatsapp-gateway',
-    accountId,
     message_id: message?.id,
     recipient: message?.recipient,
     body_preview: getBodyPreview(body),
-    typing_indicator_enabled: Boolean(typingIndicatorEnabled),
   });
 
   try {
@@ -106,7 +62,6 @@ const sendQueuedMessage = async (client, message, options = {}) => {
 
       activeLogger.warn('WhatsApp number could not be resolved.', {
         service: 'whatsapp-gateway',
-        accountId,
         message_id: message?.id,
         recipient: actualRecipient,
       });
@@ -131,57 +86,16 @@ const sendQueuedMessage = async (client, message, options = {}) => {
 
     activeLogger.info('WhatsApp number resolved', {
       service: 'whatsapp-gateway',
-      accountId,
       message_id: message?.id,
       recipient: actualRecipient,
       resolved_id: numberId._serialized,
       send_chat_id: chatId,
     });
 
-    sendStage = 'typing_indicator';
-
-    if (typingIndicatorEnabled) {
-      try {
-        typingChat = await resolveTypingChat(client, chatId);
-        clearTypingState = Boolean(typingChat && typeof typingChat.clearState === 'function');
-
-        if (typingChat && typeof typingChat.sendStateTyping === 'function') {
-          await typingChat.sendStateTyping();
-
-          const typingDelayMs = calculateTypingDelayMs(
-            typingDelayMinMs,
-            typingDelayMaxMs,
-            options.randomFn,
-          );
-
-          activeLogger.info('WhatsApp typing indicator started before send.', {
-            service: 'whatsapp-gateway',
-            accountId,
-            message_id: message?.id,
-            typingDelayMs,
-          });
-
-          await wait(typingDelayMs);
-        }
-      } catch (typingError) {
-        if (isRecoverableSessionError(typingError)) {
-          throw typingError;
-        }
-
-        activeLogger.warn('WhatsApp typing indicator failed before send.', {
-          service: 'whatsapp-gateway',
-          accountId,
-          message_id: message?.id,
-          stage: 'typing_indicator',
-          message: getErrorMessage(typingError),
-        });
-      }
-    }
-
     sendStage = 'send_message';
 
     const result = await client.sendMessage(chatId, body);
-    await wait(postSendDelay);
+    await delay(2000);
 
     let externalMessageId = result?.id?._serialized ?? result?.id?.id ?? null;
     let responsePayload = buildResponsePayloadFromSendResult(result);
@@ -200,7 +114,6 @@ const sendQueuedMessage = async (client, message, options = {}) => {
 
       activeLogger.warn('WhatsApp send returned without message id', {
         service: 'whatsapp-gateway',
-        accountId,
         message_id: message?.id,
         recipient: actualRecipient,
         resolved_id: numberId._serialized,
@@ -209,14 +122,12 @@ const sendQueuedMessage = async (client, message, options = {}) => {
 
       activeLogger.info('Marking message as sent with fallback external id.', {
         service: 'whatsapp-gateway',
-        accountId,
         message_id: message?.id,
         external_message_id: externalMessageId,
       });
     } else {
       activeLogger.info('WhatsApp send returned message id', {
         service: 'whatsapp-gateway',
-        accountId,
         message_id: message?.id,
         external_message_id: externalMessageId,
         resolved_id: numberId._serialized,
@@ -237,7 +148,6 @@ const sendQueuedMessage = async (client, message, options = {}) => {
 
     activeLogger.info('Real WhatsApp send completed for queued message.', {
       service: 'whatsapp-gateway',
-      accountId,
       message_id: message?.id,
       external_message_id: externalMessageId,
       sent_at: sentAt,
@@ -253,7 +163,6 @@ const sendQueuedMessage = async (client, message, options = {}) => {
     if (recoverable && sendStage !== 'mark_sent') {
       activeLogger.warn('Recoverable WhatsApp session error detected while processing a queued message.', {
         service: 'whatsapp-gateway',
-        accountId,
         message_id: message?.id,
         stage: sendStage,
         message: errorMessage,
@@ -275,7 +184,6 @@ const sendQueuedMessage = async (client, message, options = {}) => {
       } catch (deferError) {
         activeLogger.error('Failed to defer queued message for session recovery.', {
           service: 'whatsapp-gateway',
-          accountId,
           message_id: message?.id,
           stage: sendStage,
           message: deferError.message,
@@ -296,7 +204,6 @@ const sendQueuedMessage = async (client, message, options = {}) => {
 
     activeLogger[recoverable ? 'warn' : 'error']('Real WhatsApp send failed for queued message.', {
       service: 'whatsapp-gateway',
-      accountId,
       message_id: message?.id,
       stage: sendStage,
       recoverable,
@@ -318,7 +225,6 @@ const sendQueuedMessage = async (client, message, options = {}) => {
     } catch (markFailedError) {
       activeLogger.error('Failed to mark queued message as failed after real send error.', {
         service: 'whatsapp-gateway',
-        accountId,
         message_id: message?.id,
         message: markFailedError.message,
       });
@@ -334,20 +240,6 @@ const sendQueuedMessage = async (client, message, options = {}) => {
       error: errorMessage,
       errorObject: error,
     };
-  } finally {
-    if (clearTypingState) {
-      try {
-        await clearTypingIndicator(typingChat);
-      } catch (clearError) {
-        activeLogger.warn('WhatsApp typing indicator clearState failed after send attempt.', {
-          service: 'whatsapp-gateway',
-          accountId,
-          message_id: message?.id,
-          stage: 'typing_indicator_clear',
-          message: getErrorMessage(clearError),
-        });
-      }
-    }
   }
 };
 
@@ -355,8 +247,5 @@ module.exports = {
   normalizeRecipient,
   getBodyPreview,
   isRecoverableWhatsappError: isRecoverableSessionError,
-  calculateTypingDelayMs,
-  clearTypingIndicator,
-  resolveTypingChat,
   sendQueuedMessage,
 };
