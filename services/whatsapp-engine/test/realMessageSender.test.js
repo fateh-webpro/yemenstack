@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { sendQueuedMessage, calculateTypingDelayMs, buildTypingChatCandidates } = require('../src/realMessageSender');
+const { sendQueuedMessage, calculateTypingDelayMs } = require('../src/realMessageSender');
 const { config } = require('../src/config');
 
 const createLaravelMessageClient = () => {
@@ -50,7 +50,7 @@ const createLogger = () => {
 
 const createMessage = () => ({
   id: 901,
-  recipient: '966501615360',
+  recipient: '967700000901',
   body: 'test body',
   whatsapp_account_id: 44,
 });
@@ -87,32 +87,15 @@ const loadConfigModuleWithEnv = (envOverrides) => {
   return freshModule;
 };
 
-const createDefaultClient = (overrides = {}) => ({
-  async getNumberId(recipient) {
-    return { _serialized: `${recipient}@c.us` };
-  },
-  async getChatById(chatId) {
-    return {
-      async sendStateTyping() {},
-      async clearState() {},
-      id: chatId,
-    };
-  },
-  async sendMessage(chatId, body) {
-    return { id: { _serialized: 'wamid.default' }, chatId, body };
-  },
-  ...overrides,
-});
-
 test('typing indicator can be disabled without extra delay before send', async () => {
   const order = [];
   const loggerHarness = createLogger();
   const messageClientHarness = createLaravelMessageClient();
   const waits = [];
-  const client = createDefaultClient({
+  const client = {
     async getNumberId(recipient) {
       order.push(`getNumberId:${recipient}`);
-      return { _serialized: `${recipient}@lid` };
+      return { _serialized: `${recipient}@c.us` };
     },
     async getChatById() {
       order.push('getChatById');
@@ -122,7 +105,7 @@ test('typing indicator can be disabled without extra delay before send', async (
       order.push(`sendMessage:${chatId}:${body}`);
       return { id: { _serialized: 'wamid.typing.disabled' } };
     },
-  });
+  };
 
   const result = await sendQueuedMessage(client, createMessage(), {
     accountId: 44,
@@ -141,33 +124,33 @@ test('typing indicator can be disabled without extra delay before send', async (
   assert.equal(messageClientHarness.calls.markMessageSent.length, 1);
 });
 
-test('resolved_id @lid is tried first and sendMessage still uses the c.us chatId', async () => {
+test('typing indicator runs before send and clearState runs in finally', async () => {
   const order = [];
   const waits = [];
   const loggerHarness = createLogger();
   const messageClientHarness = createLaravelMessageClient();
-  const lidChat = {
+  const chat = {
     async sendStateTyping() {
-      order.push('sendStateTyping:lid');
+      order.push('sendStateTyping');
     },
     async clearState() {
-      order.push('clearState:lid');
+      order.push('clearState');
     },
   };
-  const client = createDefaultClient({
+  const client = {
     async getNumberId(recipient) {
       order.push(`getNumberId:${recipient}`);
-      return { _serialized: '148494836846671@lid' };
+      return { _serialized: `${recipient}@c.us` };
     },
     async getChatById(chatId) {
       order.push(`getChatById:${chatId}`);
-      return chatId === '148494836846671@lid' ? lidChat : null;
+      return chat;
     },
     async sendMessage(chatId, body) {
       order.push(`sendMessage:${chatId}:${body}`);
-      return { id: { _serialized: 'wamid.typing.lid' } };
+      return { id: { _serialized: 'wamid.typing.enabled' } };
     },
-  });
+  };
 
   const result = await sendQueuedMessage(client, createMessage(), {
     accountId: 44,
@@ -184,88 +167,39 @@ test('resolved_id @lid is tried first and sendMessage still uses the c.us chatId
 
   assert.equal(result.success, true);
   assert.deepEqual(order, [
-    'getNumberId:966501615360',
-    'getChatById:148494836846671@lid',
-    'sendStateTyping:lid',
-    'sendMessage:966501615360@c.us:test body',
-    'clearState:lid',
+    'getNumberId:967700000901',
+    'getChatById:967700000901@c.us',
+    'sendStateTyping',
+    'sendMessage:967700000901@c.us:test body',
+    'clearState',
   ]);
   assert.deepEqual(waits, [3500, 0]);
-  assert.equal(loggerHarness.calls.some((entry) => entry.level === 'info' && entry.message === 'WhatsApp typing indicator started before send.' && entry.context?.typing_chat_id === '148494836846671@lid'), true);
 });
 
-test('non-recoverable lid failure falls back to c.us and waits once only', async () => {
-  const order = [];
-  const waits = [];
+test('non-recoverable typing error logs a warning and send continues', async () => {
   const loggerHarness = createLogger();
   const messageClientHarness = createLaravelMessageClient();
-  const chatCus = {
-    async sendStateTyping() {
-      order.push('sendStateTyping:cus');
+  let clearCalled = false;
+  let sendCalled = false;
+  const client = {
+    async getNumberId(recipient) {
+      return { _serialized: `${recipient}@c.us` };
     },
-    async clearState() {
-      order.push('clearState:cus');
-    },
-  };
-  const client = createDefaultClient({
-    async getNumberId() {
-      return { _serialized: '148494836846671@lid' };
-    },
-    async getChatById(chatId) {
-      order.push(`getChatById:${chatId}`);
-      if (chatId === '148494836846671@lid') {
-        throw new Error('typing failed for lid');
-      }
-      return chatCus;
-    },
-    async sendMessage(chatId) {
-      order.push(`sendMessage:${chatId}`);
-      return { id: { _serialized: 'wamid.typing.cus' } };
-    },
-  });
-
-  const result = await sendQueuedMessage(client, createMessage(), {
-    accountId: 44,
-    logger: loggerHarness.logger,
-    laravelMessageClient: messageClientHarness.client,
-    typingIndicatorEnabled: true,
-    typingDelayMinMs: 3000,
-    typingDelayMaxMs: 3000,
-    postSendDelayMs: 0,
-    wait: async (ms) => {
-      waits.push(ms);
-    },
-  });
-
-  assert.equal(result.success, true);
-  assert.deepEqual(order, [
-    'getChatById:148494836846671@lid',
-    'getChatById:966501615360@c.us',
-    'sendStateTyping:cus',
-    'sendMessage:966501615360@c.us',
-    'clearState:cus',
-  ]);
-  assert.deepEqual(waits, [3000, 0]);
-  assert.equal(loggerHarness.calls.some((entry) => entry.level === 'warn' && entry.context?.stage === 'typing_indicator_candidate' && entry.context?.typing_chat_id === '148494836846671@lid'), true);
-});
-
-test('all non-recoverable typing candidates can fail and send still succeeds once', async () => {
-  const waits = [];
-  const loggerHarness = createLogger();
-  const messageClientHarness = createLaravelMessageClient();
-  let sendCount = 0;
-  const client = createDefaultClient({
-    async getNumberId() {
-      return { _serialized: '148494836846671@lid' };
-    },
-    async getChatById(chatId) {
-      throw new Error(`candidate failed ${chatId}`);
+    async getChatById() {
+      return {
+        async sendStateTyping() {
+          throw new Error('typing unavailable');
+        },
+        async clearState() {
+          clearCalled = true;
+        },
+      };
     },
     async sendMessage() {
-      sendCount += 1;
-      return { id: { _serialized: 'wamid.typing.send.once' } };
+      sendCalled = true;
+      return { id: { _serialized: 'wamid.typing.warn' } };
     },
-  });
+  };
 
   const result = await sendQueuedMessage(client, createMessage(), {
     accountId: 44,
@@ -275,38 +209,41 @@ test('all non-recoverable typing candidates can fail and send still succeeds onc
     typingDelayMinMs: 3000,
     typingDelayMaxMs: 3000,
     postSendDelayMs: 0,
-    wait: async (ms) => {
-      waits.push(ms);
-    },
+    wait: async () => {},
   });
 
   assert.equal(result.success, true);
-  assert.equal(sendCount, 1);
-  assert.deepEqual(waits, [0]);
+  assert.equal(sendCalled, true);
+  assert.equal(clearCalled, true);
+  assert.equal(loggerHarness.calls.some((entry) => entry.level === 'warn' && entry.context?.stage === 'typing_indicator'), true);
   assert.equal(messageClientHarness.calls.markMessageSent.length, 1);
-  assert.equal(messageClientHarness.calls.markMessageFailed.length, 0);
-  assert.equal(loggerHarness.calls.filter((entry) => entry.level === 'warn' && entry.context?.stage === 'typing_indicator_candidate').length, 2);
-  assert.equal(loggerHarness.calls.some((entry) => entry.level === 'warn' && entry.message === 'All WhatsApp typing indicator candidates failed before send.'), true);
+  assert.equal(messageClientHarness.calls.deferMessage.length, 0);
 });
 
-test('recoverable error on lid stops fallback and keeps the existing defer path', async () => {
+test('recoverable typing error keeps the existing defer and recovery path', async () => {
   const loggerHarness = createLogger();
   const messageClientHarness = createLaravelMessageClient();
   let sendCalled = false;
-  const attemptedCandidates = [];
-  const client = createDefaultClient({
-    async getNumberId() {
-      return { _serialized: '148494836846671@lid' };
+  let clearCalled = false;
+  const client = {
+    async getNumberId(recipient) {
+      return { _serialized: `${recipient}@c.us` };
     },
-    async getChatById(chatId) {
-      attemptedCandidates.push(chatId);
-      throw new Error('Target closed');
+    async getChatById() {
+      return {
+        async sendStateTyping() {
+          throw new Error('Target closed');
+        },
+        async clearState() {
+          clearCalled = true;
+        },
+      };
     },
     async sendMessage() {
       sendCalled = true;
       return { id: { _serialized: 'wamid.should.not.send' } };
     },
-  });
+  };
 
   const result = await sendQueuedMessage(client, createMessage(), {
     accountId: 44,
@@ -321,211 +258,19 @@ test('recoverable error on lid stops fallback and keeps the existing defer path'
 
   assert.equal(result.recoverable, true);
   assert.equal(sendCalled, false);
-  assert.deepEqual(attemptedCandidates, ['148494836846671@lid']);
+  assert.equal(clearCalled, true);
   assert.equal(messageClientHarness.calls.deferMessage.length, 1);
   assert.equal(messageClientHarness.calls.markMessageFailed.length, 0);
   assert.equal(messageClientHarness.calls.markMessageSent.length, 0);
-});
-
-test('duplicate typing candidate ids are removed before getChatById', async () => {
-  const order = [];
-  const loggerHarness = createLogger();
-  const messageClientHarness = createLaravelMessageClient();
-  const chat = {
-    async sendStateTyping() {
-      order.push('sendStateTyping');
-    },
-    async clearState() {
-      order.push('clearState');
-    },
-  };
-  const client = createDefaultClient({
-    async getNumberId() {
-      return { _serialized: '966501615360@c.us' };
-    },
-    async getChatById(chatId) {
-      order.push(`getChatById:${chatId}`);
-      return chat;
-    },
-    async sendMessage(chatId) {
-      order.push(`sendMessage:${chatId}`);
-      return { id: { _serialized: 'wamid.typing.same.id' } };
-    },
-  });
-
-  const result = await sendQueuedMessage(client, createMessage(), {
-    accountId: 44,
-    logger: loggerHarness.logger,
-    laravelMessageClient: messageClientHarness.client,
-    typingIndicatorEnabled: true,
-    typingDelayMinMs: 3000,
-    typingDelayMaxMs: 3000,
-    postSendDelayMs: 0,
-    wait: async () => {},
-  });
-
-  assert.equal(result.success, true);
-  assert.deepEqual(order, [
-    'getChatById:966501615360@c.us',
-    'sendStateTyping',
-    'sendMessage:966501615360@c.us',
-    'clearState',
-  ]);
-});
-
-test('null chat candidate falls back without waiting for the failed candidate', async () => {
-  const order = [];
-  const waits = [];
-  const loggerHarness = createLogger();
-  const messageClientHarness = createLaravelMessageClient();
-  const chatCus = {
-    async sendStateTyping() {
-      order.push('sendStateTyping:cus');
-    },
-    async clearState() {
-      order.push('clearState:cus');
-    },
-  };
-  const client = createDefaultClient({
-    async getNumberId() {
-      return { _serialized: '148494836846671@lid' };
-    },
-    async getChatById(chatId) {
-      order.push(`getChatById:${chatId}`);
-      if (chatId === '148494836846671@lid') {
-        return null;
-      }
-      return chatCus;
-    },
-    async sendMessage(chatId) {
-      order.push(`sendMessage:${chatId}`);
-      return { id: { _serialized: 'wamid.typing.null' } };
-    },
-  });
-
-  const result = await sendQueuedMessage(client, createMessage(), {
-    accountId: 44,
-    logger: loggerHarness.logger,
-    laravelMessageClient: messageClientHarness.client,
-    typingIndicatorEnabled: true,
-    typingDelayMinMs: 3100,
-    typingDelayMaxMs: 3100,
-    postSendDelayMs: 0,
-    wait: async (ms) => {
-      waits.push(ms);
-    },
-  });
-
-  assert.equal(result.success, true);
-  assert.deepEqual(order, [
-    'getChatById:148494836846671@lid',
-    'getChatById:966501615360@c.us',
-    'sendStateTyping:cus',
-    'sendMessage:966501615360@c.us',
-    'clearState:cus',
-  ]);
-  assert.deepEqual(waits, [3100, 0]);
-});
-
-test('candidate without sendStateTyping falls back without waiting', async () => {
-  const order = [];
-  const waits = [];
-  const loggerHarness = createLogger();
-  const messageClientHarness = createLaravelMessageClient();
-  const client = createDefaultClient({
-    async getNumberId() {
-      return { _serialized: '148494836846671@lid' };
-    },
-    async getChatById(chatId) {
-      order.push(`getChatById:${chatId}`);
-      if (chatId === '148494836846671@lid') {
-        return { clearState: async () => {} };
-      }
-      return {
-        async sendStateTyping() {
-          order.push('sendStateTyping:cus');
-        },
-        async clearState() {
-          order.push('clearState:cus');
-        },
-      };
-    },
-    async sendMessage(chatId) {
-      order.push(`sendMessage:${chatId}`);
-      return { id: { _serialized: 'wamid.typing.no.method' } };
-    },
-  });
-
-  const result = await sendQueuedMessage(client, createMessage(), {
-    accountId: 44,
-    logger: loggerHarness.logger,
-    laravelMessageClient: messageClientHarness.client,
-    typingIndicatorEnabled: true,
-    typingDelayMinMs: 3200,
-    typingDelayMaxMs: 3200,
-    postSendDelayMs: 0,
-    wait: async (ms) => {
-      waits.push(ms);
-    },
-  });
-
-  assert.equal(result.success, true);
-  assert.deepEqual(order, [
-    'getChatById:148494836846671@lid',
-    'getChatById:966501615360@c.us',
-    'sendStateTyping:cus',
-    'sendMessage:966501615360@c.us',
-    'clearState:cus',
-  ]);
-  assert.deepEqual(waits, [3200, 0]);
-});
-
-test('clearState failure only logs a warning and keeps the send successful', async () => {
-  const loggerHarness = createLogger();
-  const messageClientHarness = createLaravelMessageClient();
-  let sendCount = 0;
-  const client = createDefaultClient({
-    async getNumberId() {
-      return { _serialized: '148494836846671@lid' };
-    },
-    async getChatById() {
-      return {
-        async sendStateTyping() {},
-        async clearState() {
-          throw new Error('clear failed');
-        },
-      };
-    },
-    async sendMessage() {
-      sendCount += 1;
-      return { id: { _serialized: 'wamid.typing.clear.failed' } };
-    },
-  });
-
-  const result = await sendQueuedMessage(client, createMessage(), {
-    accountId: 44,
-    logger: loggerHarness.logger,
-    laravelMessageClient: messageClientHarness.client,
-    typingIndicatorEnabled: true,
-    typingDelayMinMs: 3000,
-    typingDelayMaxMs: 3000,
-    postSendDelayMs: 0,
-    wait: async () => {},
-  });
-
-  assert.equal(result.success, true);
-  assert.equal(sendCount, 1);
-  assert.equal(messageClientHarness.calls.markMessageSent.length, 1);
-  assert.equal(loggerHarness.calls.some((entry) => entry.level === 'warn' && entry.context?.stage === 'typing_indicator_clear'), true);
 });
 
 test('send failure still clears typing state and does not mark the message as sent', async () => {
   const loggerHarness = createLogger();
   const messageClientHarness = createLaravelMessageClient();
   let clearCalled = false;
-  const client = createDefaultClient({
-    async getNumberId() {
-      return { _serialized: '148494836846671@lid' };
+  const client = {
+    async getNumberId(recipient) {
+      return { _serialized: `${recipient}@c.us` };
     },
     async getChatById() {
       return {
@@ -538,7 +283,7 @@ test('send failure still clears typing state and does not mark the message as se
     async sendMessage() {
       throw new Error('send failed');
     },
-  });
+  };
 
   const result = await sendQueuedMessage(client, createMessage(), {
     accountId: 44,
@@ -562,13 +307,6 @@ test('typing delay helper returns a bounded value', async () => {
   assert.equal(calculateTypingDelayMs(3000, 3000, () => 0.99), 3000);
   const value = calculateTypingDelayMs(3000, 7000, () => 0.5);
   assert.equal(value >= 3000 && value <= 7000, true);
-});
-
-test('typing chat candidate helper keeps resolved_id first and removes duplicates', async () => {
-  assert.deepEqual(
-    buildTypingChatCandidates('148494836846671@lid', '966501615360@c.us', '148494836846671@lid', '', null),
-    ['148494836846671@lid', '966501615360@c.us'],
-  );
 });
 
 test('typing configuration falls back to safe defaults for invalid values', async () => {

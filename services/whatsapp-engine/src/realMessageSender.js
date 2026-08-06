@@ -57,24 +57,6 @@ const calculateTypingDelayMs = (
   return Math.floor(randomFn() * ((maxDelayMs - minDelayMs) + 1)) + minDelayMs;
 };
 
-const buildTypingChatCandidates = (...candidateIds) => {
-  const seen = new Set();
-  const uniqueCandidates = [];
-
-  for (const candidateId of candidateIds) {
-    const normalizedCandidateId = String(candidateId || '').trim();
-
-    if (!normalizedCandidateId || seen.has(normalizedCandidateId)) {
-      continue;
-    }
-
-    seen.add(normalizedCandidateId);
-    uniqueCandidates.push(normalizedCandidateId);
-  }
-
-  return uniqueCandidates;
-};
-
 const resolveTypingChat = async (client, chatId) => {
   if (typeof client.getChatById !== 'function') {
     return null;
@@ -159,94 +141,40 @@ const sendQueuedMessage = async (client, message, options = {}) => {
     sendStage = 'typing_indicator';
 
     if (typingIndicatorEnabled) {
-      if (typeof client.getChatById !== 'function') {
-        activeLogger.warn('WhatsApp typing indicator is unavailable because getChatById is not supported.', {
-          service: 'whatsapp-gateway',
-          accountId,
-          message_id: message?.id,
-          stage: 'typing_indicator_unavailable',
-        });
-      } else {
-        const typingChatCandidates = buildTypingChatCandidates(numberId._serialized, chatId);
-        let typingIndicatorStarted = false;
+      try {
+        typingChat = await resolveTypingChat(client, chatId);
+        clearTypingState = Boolean(typingChat && typeof typingChat.clearState === 'function');
 
-        for (const typingChatId of typingChatCandidates) {
-          try {
-            const candidateChat = await resolveTypingChat(client, typingChatId);
+        if (typingChat && typeof typingChat.sendStateTyping === 'function') {
+          await typingChat.sendStateTyping();
 
-            if (!candidateChat) {
-              activeLogger.warn('WhatsApp typing indicator candidate did not resolve to a chat.', {
-                service: 'whatsapp-gateway',
-                accountId,
-                message_id: message?.id,
-                stage: 'typing_indicator_candidate',
-                typing_chat_id: typingChatId,
-                error_name: 'ChatNotFound',
-                error_message: 'Chat could not be resolved for typing indicator.',
-              });
-              continue;
-            }
+          const typingDelayMs = calculateTypingDelayMs(
+            typingDelayMinMs,
+            typingDelayMaxMs,
+            options.randomFn,
+          );
 
-            if (typeof candidateChat.sendStateTyping !== 'function') {
-              activeLogger.warn('WhatsApp typing indicator candidate does not support sendStateTyping.', {
-                service: 'whatsapp-gateway',
-                accountId,
-                message_id: message?.id,
-                stage: 'typing_indicator_candidate',
-                typing_chat_id: typingChatId,
-                error_name: 'TypingIndicatorUnavailable',
-                error_message: 'Chat does not support sendStateTyping.',
-              });
-              continue;
-            }
-
-            await candidateChat.sendStateTyping();
-            typingChat = candidateChat;
-            clearTypingState = typeof candidateChat.clearState === 'function';
-
-            const typingDelayMs = calculateTypingDelayMs(
-              typingDelayMinMs,
-              typingDelayMaxMs,
-              options.randomFn,
-            );
-
-            activeLogger.info('WhatsApp typing indicator started before send.', {
-              service: 'whatsapp-gateway',
-              accountId,
-              message_id: message?.id,
-              typing_chat_id: typingChatId,
-              typingDelayMs,
-            });
-
-            await wait(typingDelayMs);
-            typingIndicatorStarted = true;
-            break;
-          } catch (typingError) {
-            if (isRecoverableSessionError(typingError)) {
-              throw typingError;
-            }
-
-            activeLogger.warn('WhatsApp typing indicator candidate failed before send.', {
-              service: 'whatsapp-gateway',
-              accountId,
-              message_id: message?.id,
-              stage: 'typing_indicator_candidate',
-              typing_chat_id: typingChatId,
-              error_name: typingError?.name ?? 'Error',
-              error_message: getErrorMessage(typingError),
-            });
-          }
-        }
-
-        if (!typingIndicatorStarted) {
-          activeLogger.warn('All WhatsApp typing indicator candidates failed before send.', {
+          activeLogger.info('WhatsApp typing indicator started before send.', {
             service: 'whatsapp-gateway',
             accountId,
             message_id: message?.id,
-            stage: 'typing_indicator',
-            typing_chat_candidates: typingChatCandidates,
+            typingDelayMs,
           });
+
+          await wait(typingDelayMs);
         }
+      } catch (typingError) {
+        if (isRecoverableSessionError(typingError)) {
+          throw typingError;
+        }
+
+        activeLogger.warn('WhatsApp typing indicator failed before send.', {
+          service: 'whatsapp-gateway',
+          accountId,
+          message_id: message?.id,
+          stage: 'typing_indicator',
+          message: getErrorMessage(typingError),
+        });
       }
     }
 
@@ -428,7 +356,6 @@ module.exports = {
   getBodyPreview,
   isRecoverableWhatsappError: isRecoverableSessionError,
   calculateTypingDelayMs,
-  buildTypingChatCandidates,
   clearTypingIndicator,
   resolveTypingChat,
   sendQueuedMessage,
