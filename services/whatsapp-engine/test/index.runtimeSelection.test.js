@@ -53,3 +53,34 @@ test('feature flag true selects the multi-session runtime only', () => {
   assert.equal(legacyCreated, 0);
   assert.equal(multiCreated, 1);
 });
+test('multi-session worker factory reads the live automatic sending mode from the provided context', () => {
+  const context = {
+    automaticSendingEnabled: false,
+  };
+
+  const factory = indexModule.buildSessionMessageWorkerFactory({
+    createMessageClient: () => ({
+      async fetchPendingMessages() { return { success: true, data: [], meta: { limit: 1 } }; },
+      async claimMessage() { return { success: true, data: {} }; },
+      async fetchQueuedMessages() { return { success: true, data: [] }; },
+      async markMessageSent() { return { success: true, data: {} }; },
+      async markMessageFailed() { return { success: true, data: {} }; },
+    }),
+    setInterval: () => ({ timer: true }),
+    clearInterval: () => {},
+  });
+
+  const worker = factory({ accountId: 801, sessionName: 'wa_session_801' }, {
+    getContext: () => context,
+    getWhatsappClient: () => null,
+    isReady: () => false,
+  });
+
+  assert.equal(worker.getSnapshot().sendingMode, 'manual');
+
+  context.automaticSendingEnabled = true;
+  assert.equal(worker.getSnapshot().sendingMode, 'automatic');
+
+  context.automaticSendingEnabled = false;
+  assert.equal(worker.getSnapshot().sendingMode, 'manual');
+});

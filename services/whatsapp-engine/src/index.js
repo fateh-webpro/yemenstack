@@ -728,6 +728,7 @@ const buildSessionMessageWorkerFactory = (dependencies = {}) => {
   return (descriptor, helpers) => new SessionMessageWorker({
     accountId: descriptor.accountId,
     sessionName: descriptor.sessionName,
+    getContext: helpers.getContext,
     getWhatsappClient: helpers.getWhatsappClient,
     isReady: helpers.isReady,
     isRecovering: () => {
