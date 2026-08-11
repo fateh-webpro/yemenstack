@@ -181,6 +181,70 @@ test('start is idempotent while a session already exists for the same account', 
   assert.equal(secondStart.accountId, 102);
   assert.equal(manager.list().length, 1);
 });
+test('start preserves the current automatic sending mode when the descriptor omits it', async () => {
+  const { manager, counters } = createHarness();
+
+  await manager.start({
+    accountId: 1021,
+    sessionName: 'wa_session_1021',
+    desiredState: 'running',
+    automaticSendingEnabled: true,
+  });
+
+  const snapshot = await manager.start({
+    accountId: 1021,
+    sessionName: 'wa_session_1021',
+    desiredState: 'running',
+  });
+
+  assert.equal(counters.createClient, 1);
+  assert.equal(snapshot.automaticSendingEnabled, true);
+  assert.equal(manager.getSnapshot(1021).automaticSendingEnabled, true);
+});
+
+test('start updates an existing session from manual to automatic without recreating the client', async () => {
+  const { manager, counters } = createHarness();
+
+  await manager.start({
+    accountId: 1022,
+    sessionName: 'wa_session_1022',
+    desiredState: 'running',
+    automaticSendingEnabled: false,
+  });
+
+  const snapshot = await manager.start({
+    accountId: 1022,
+    sessionName: 'wa_session_1022',
+    desiredState: 'running',
+    automaticSendingEnabled: true,
+  });
+
+  assert.equal(counters.createClient, 1);
+  assert.equal(snapshot.automaticSendingEnabled, true);
+  assert.equal(manager.getSnapshot(1022).automaticSendingEnabled, true);
+});
+
+test('start updates an existing session from automatic to manual without recreating the client', async () => {
+  const { manager, counters } = createHarness();
+
+  await manager.start({
+    accountId: 1023,
+    sessionName: 'wa_session_1023',
+    desiredState: 'running',
+    automaticSendingEnabled: true,
+  });
+
+  const snapshot = await manager.start({
+    accountId: 1023,
+    sessionName: 'wa_session_1023',
+    desiredState: 'running',
+    automaticSendingEnabled: false,
+  });
+
+  assert.equal(counters.createClient, 1);
+  assert.equal(snapshot.automaticSendingEnabled, false);
+  assert.equal(manager.getSnapshot(1023).automaticSendingEnabled, false);
+});
 
 test('prevents duplicate account ids with a different session name', async () => {
   const { manager } = createHarness();

@@ -218,6 +218,27 @@ test('manual mode does not claim pending messages automatically without a manual
   assert.equal(harness.calls.claimMessage.length, 0);
   assert.equal(harness.calls.sendMessage.length, 0);
 });
+test('worker reads the latest automatic sending mode from context on each cycle', async () => {
+  const harness = createHarness({
+    automaticSendingEnabled: true,
+    queuedMessages: [],
+    pendingMessages: [],
+    manualQueuedMessages: [],
+    manualPendingMessages: [],
+  });
+
+  await harness.worker.start();
+  assert.deepEqual(harness.calls.fetchQueuedMessages[0], { limit: 1, options: { mode: 'automatic' } });
+
+  harness.setAutomaticSendingEnabled(false);
+  harness.worker.nextAutomaticSendNotBefore = null;
+
+  await harness.worker.runCycle();
+
+  assert.deepEqual(harness.calls.fetchQueuedMessages.at(-1), { limit: 1, options: { mode: 'manual' } });
+  assert.deepEqual(harness.calls.fetchPendingMessages.at(-1), { limit: 1, options: { mode: 'manual' } });
+  assert.equal(harness.worker.getSnapshot().sendingMode, 'manual');
+});
 
 test('message send failure marks the message as failed and updates counters', async () => {
   const harness = createHarness({

@@ -21,11 +21,25 @@ const createHarness = (sessionsFactory, options = {}) => {
     },
     async start(descriptor) {
       started.push(descriptor);
-      active.set(String(descriptor.accountId), {
+      const key = String(descriptor.accountId);
+      const current = active.get(key);
+
+      if (current) {
+        current.desiredState = descriptor.desiredState || current.desiredState;
+
+        if (Object.prototype.hasOwnProperty.call(descriptor, 'automaticSendingEnabled')) {
+          current.automaticSendingEnabled = descriptor.automaticSendingEnabled;
+        }
+
+        return current;
+      }
+
+      active.set(key, {
         accountId: descriptor.accountId,
         sessionName: descriptor.sessionName,
         state: options.defaultStartedState || 'starting',
         desiredState: 'running',
+        automaticSendingEnabled: descriptor.automaticSendingEnabled ?? false,
         generation: 1,
         isReady: false,
         hasClient: options.defaultStartedHasClient !== false,
@@ -131,6 +145,7 @@ test('sync starts running sessions and stops stopped sessions', async () => {
     sessionName: 'wa_two',
     state: 'ready',
     desiredState: 'running',
+    automaticSendingEnabled: false,
     generation: 1,
     isReady: true,
     hasClient: true,
@@ -168,6 +183,71 @@ test('sync counts already managed running sessions without logging a new start e
   assert.equal(summary.alreadyManagedCount, 1);
 });
 
+test('sync updates an existing managed session from manual to automatic without recreating it', async () => {
+  const harness = createHarness(async () => [
+    { id: 11, session_name: 'wa_eleven', session_desired_state: 'running', automatic_sending_enabled: true },
+  ]);
+
+  harness.active.set('11', {
+    accountId: 11,
+    sessionName: 'wa_eleven',
+    state: 'ready',
+    desiredState: 'running',
+    automaticSendingEnabled: false,
+    generation: 4,
+    isReady: true,
+    hasClient: true,
+    hasMessageWorker: true,
+    messageWorker: null,
+    lastError: null,
+    createdAt: 't1',
+    updatedAt: 't1',
+  });
+
+  await harness.runtime.syncSessions();
+
+  assert.equal(harness.started.length, 1);
+  assert.deepEqual(harness.started[0], {
+    accountId: 11,
+    sessionName: 'wa_eleven',
+    desiredState: 'running',
+    automaticSendingEnabled: true,
+  });
+  assert.equal(harness.active.get('11').automaticSendingEnabled, true);
+  assert.equal(harness.active.get('11').generation, 4);
+  assert.equal(harness.active.get('11').hasClient, true);
+});
+
+test('sync updates an existing managed session from automatic to manual without recreating it', async () => {
+  const harness = createHarness(async () => [
+    { id: 12, session_name: 'wa_twelve', session_desired_state: 'running', automatic_sending_enabled: false },
+  ]);
+
+  harness.active.set('12', {
+    accountId: 12,
+    sessionName: 'wa_twelve',
+    state: 'ready',
+    desiredState: 'running',
+    automaticSendingEnabled: true,
+    generation: 2,
+    isReady: true,
+    hasClient: true,
+    hasMessageWorker: true,
+    messageWorker: null,
+    lastError: null,
+    createdAt: 't1',
+    updatedAt: 't1',
+  });
+
+  await harness.runtime.syncSessions();
+
+  assert.equal(harness.started.length, 1);
+  assert.equal(harness.started[0].automaticSendingEnabled, false);
+  assert.equal(harness.active.get('12').automaticSendingEnabled, false);
+  assert.equal(harness.active.get('12').generation, 2);
+  assert.equal(harness.active.get('12').hasClient, true);
+});
+
 test('sync does not start a new client while an existing session is stopping', async () => {
   const harness = createHarness(async () => [
     { id: 7, session_name: 'wa_seven', session_desired_state: 'running' },
@@ -178,6 +258,7 @@ test('sync does not start a new client while an existing session is stopping', a
     sessionName: 'wa_seven',
     state: 'stopping',
     desiredState: 'running',
+    automaticSendingEnabled: false,
     generation: 3,
     isReady: false,
     hasClient: true,
@@ -204,6 +285,7 @@ test('sync does not repeat stop calls or stop logging once a session is already 
     sessionName: 'wa_eight',
     state: 'ready',
     desiredState: 'running',
+    automaticSendingEnabled: false,
     generation: 1,
     isReady: true,
     hasClient: true,
@@ -248,6 +330,7 @@ test('sync removes sessions that no longer exist in Laravel', async () => {
     sessionName: 'wa_three',
     state: 'ready',
     desiredState: 'running',
+    automaticSendingEnabled: false,
     generation: 1,
     isReady: true,
     hasClient: true,
@@ -281,6 +364,7 @@ test('session sync errors are isolated and do not stop other sessions', async ()
       sessionName: descriptor.sessionName,
       state: 'starting',
       desiredState: 'running',
+      automaticSendingEnabled: descriptor.automaticSendingEnabled ?? false,
       generation: 1,
       isReady: false,
       hasClient: true,

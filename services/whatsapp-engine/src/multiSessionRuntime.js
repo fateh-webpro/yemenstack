@@ -151,6 +151,7 @@ class MultiSessionRuntime {
                 accountId,
                 sessionName: session.session_name,
                 desiredState: 'running',
+                automaticSendingEnabled: Boolean(session.automatic_sending_enabled),
               });
               alreadyManagedCount += 1;
               continue;
@@ -350,11 +351,7 @@ class MultiSessionRuntime {
       return true;
     }
 
-    if (snapshot.hasClient) {
-      return true;
-    }
-
-    return ['starting', 'waiting_for_qr', 'authenticated', 'ready', 'running', 'stopping', 'restarting'].includes(snapshot.state);
+    return ['stopping', 'restarting'].includes(snapshot.state);
   }
 
   isSessionStoppingOrStopped(snapshot) {

@@ -107,7 +107,9 @@ class SessionManager {
     }
 
     context.desiredState = 'running';
-    context.automaticSendingEnabled = Boolean(normalized.automaticSendingEnabled);
+    if (normalized.hasAutomaticSendingEnabled) {
+      context.automaticSendingEnabled = normalized.automaticSendingEnabled;
+    }
     this.touchContext(context);
 
     if (context.startPromise) {
@@ -843,6 +845,7 @@ class SessionManager {
       sessionName: sessionDescriptor.sessionName,
       desiredState: sessionDescriptor.desiredState || 'stopped',
       automaticSendingEnabled: Boolean(sessionDescriptor.automaticSendingEnabled),
+      hasAutomaticSendingEnabled: Object.prototype.hasOwnProperty.call(sessionDescriptor, 'automaticSendingEnabled'),
     };
   }
 
