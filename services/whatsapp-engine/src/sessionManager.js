@@ -307,6 +307,27 @@ class SessionManager {
     };
   }
 
+  async ensureMessageWorkerStarted(accountId) {
+    const context = this.get(accountId);
+
+    if (!context) {
+      return null;
+    }
+
+    if (
+      context.desiredState !== 'running'
+      || !context.isReady
+      || context.isStopping
+      || context.isRestarting
+      || context.actualState === 'stopped'
+      || context.actualState === 'error'
+    ) {
+      return this.buildSnapshot(context);
+    }
+
+    return this.startMessageWorker(context);
+  }
+
   getSnapshot(accountId) {
     const context = this.requireContext(accountId);
     return this.buildSnapshot(context);

@@ -7,9 +7,11 @@ const createRecoveryHarness = (options = {}) => {
   const stopCalls = [];
   const statusCalls = [];
   const workerStopCalls = [];
+  const workerStartCalls = [];
   const waitCalls = [];
   const loggerCalls = [];
   const contexts = new Map();
+  let runtime;
 
   const buildContext = (accountId, overrides = {}) => ({
     accountId,
@@ -19,12 +21,16 @@ const createRecoveryHarness = (options = {}) => {
     actualState: overrides.actualState || 'ready',
     isReady: overrides.isReady ?? true,
     hasClient: overrides.hasClient ?? true,
+    automaticSendingEnabled: overrides.automaticSendingEnabled ?? true,
     statusClient: overrides.statusClient || {
       async updateSessionStatus(status, extra = {}) {
         statusCalls.push({ accountId, status, extra });
       },
     },
     messageWorker: overrides.messageWorker || {
+      async start() {
+        workerStartCalls.push({ accountId, mode: contexts.get(String(accountId))?.automaticSendingEnabled ? 'automatic' : 'manual' });
+      },
       async stop(reason) {
         workerStopCalls.push({ accountId, reason });
       },
@@ -57,6 +63,7 @@ const createRecoveryHarness = (options = {}) => {
         state: context.actualState,
         isReady: context.isReady,
         hasClient: context.hasClient,
+        automaticSendingEnabled: context.automaticSendingEnabled,
       };
     },
     getAllSnapshots() {
@@ -67,6 +74,7 @@ const createRecoveryHarness = (options = {}) => {
         state: context.actualState,
         isReady: context.isReady,
         hasClient: context.hasClient,
+        automaticSendingEnabled: context.automaticSendingEnabled,
       }));
     },
     async start() {},
@@ -91,7 +99,7 @@ const createRecoveryHarness = (options = {}) => {
       }
 
       if (typeof options.onRestart === 'function') {
-        await options.onRestart(context, { restartCalls, stopCalls, statusCalls, workerStopCalls });
+        await options.onRestart(context, { restartCalls, stopCalls, statusCalls, workerStopCalls, workerStartCalls, runtime, sessionManager });
         return;
       }
 
@@ -100,9 +108,22 @@ const createRecoveryHarness = (options = {}) => {
       context.isReady = true;
       context.hasClient = true;
     },
+    async ensureMessageWorkerStarted(accountId) {
+      const context = contexts.get(String(accountId));
+
+      if (!context || context.desiredState !== 'running' || !context.isReady) {
+        return null;
+      }
+
+      if (context.messageWorker && typeof context.messageWorker.start === 'function') {
+        await context.messageWorker.start();
+      }
+
+      return context;
+    },
   };
 
-  const runtime = new MultiSessionRuntime({
+  runtime = new MultiSessionRuntime({
     sessionManager,
     laravelClient: {
       async getEngineSessions() {
@@ -127,11 +148,13 @@ const createRecoveryHarness = (options = {}) => {
 
   return {
     runtime,
+    sessionManager,
     contexts,
     restartCalls,
     stopCalls,
     statusCalls,
     workerStopCalls,
+    workerStartCalls,
     waitCalls,
     loggerCalls,
   };
@@ -217,6 +240,106 @@ test('recovery restarts only the affected account and leaves the second account 
   assert.deepEqual(harness.stopCalls, []);
   assert.equal(harness.contexts.get('501').generation, 2);
   assert.equal(harness.contexts.get('502').generation, 1);
+});
+
+test('recovery starts the worker once after promise clears when ready was reached during recovery', async () => {
+  const harness = createRecoveryHarness({
+    contexts: [
+      {
+        accountId: 501,
+        sessionName: 'wa_session_501',
+        desiredState: 'running',
+        generation: 3,
+        actualState: 'ready',
+        isReady: true,
+        hasClient: true,
+        automaticSendingEnabled: true,
+        messageWorker: {
+          async start() {
+            if (harness.runtime.isRecovering(501)) {
+              return { blocked: true };
+            }
+
+            harness.workerStartCalls.push({ accountId: 501, mode: harness.contexts.get('501').automaticSendingEnabled ? 'automatic' : 'manual' });
+            return { blocked: false };
+          },
+          async stop(reason) {
+            harness.workerStopCalls.push({ accountId: 501, reason });
+          },
+          getSnapshot() {
+            return { accountId: 501, isRunning: false };
+          },
+        },
+      },
+    ],
+    onRestart: async (context, dependencies) => {
+      context.generation += 1;
+      context.actualState = 'ready';
+      context.isReady = true;
+      context.hasClient = true;
+      await context.messageWorker.start();
+      assert.equal(dependencies.runtime.isRecovering(context.accountId), true);
+    },
+  });
+
+  await harness.runtime.handleRecoverableError(501, {
+    stage: 'send_message',
+    error: new Error('Attempted to use detached Frame'),
+    messageId: 92,
+  });
+
+  assert.deepEqual(harness.workerStopCalls, [{ accountId: 501, reason: 'session_recovery' }]);
+  assert.deepEqual(harness.workerStartCalls, [{ accountId: 501, mode: 'automatic' }]);
+  assert.equal(harness.runtime.isRecovering(501), false);
+});
+
+test('recovery completion respects the latest automatic sending mode from the live context', async () => {
+  const harness = createRecoveryHarness({
+    contexts: [
+      {
+        accountId: 501,
+        sessionName: 'wa_session_501',
+        desiredState: 'running',
+        generation: 4,
+        actualState: 'ready',
+        isReady: true,
+        hasClient: true,
+        automaticSendingEnabled: false,
+        messageWorker: {
+          async start() {
+            if (harness.runtime.isRecovering(501)) {
+              return { blocked: true };
+            }
+
+            harness.workerStartCalls.push({ accountId: 501, mode: harness.contexts.get('501').automaticSendingEnabled ? 'automatic' : 'manual' });
+            return { blocked: false };
+          },
+          async stop(reason) {
+            harness.workerStopCalls.push({ accountId: 501, reason });
+          },
+          getSnapshot() {
+            return { accountId: 501, isRunning: false };
+          },
+        },
+      },
+    ],
+    onRestart: async (context) => {
+      context.generation += 1;
+      context.actualState = 'ready';
+      context.isReady = true;
+      context.hasClient = true;
+      context.automaticSendingEnabled = true;
+      await context.messageWorker.start();
+    },
+  });
+
+  await harness.runtime.handleRecoverableError(501, {
+    stage: 'send_message',
+    error: new Error('Attempted to use detached Frame'),
+    messageId: 93,
+  });
+
+  assert.deepEqual(harness.workerStartCalls, [{ accountId: 501, mode: 'automatic' }]);
 });
 
 test('recovery exhaustion updates status stops only the affected account and blocks immediate retries', async () => {

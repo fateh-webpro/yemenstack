@@ -413,6 +413,8 @@ class MultiSessionRuntime {
       messageId: metadata.messageId || null,
     });
 
+    let recoveryCompleted = false;
+
     recoveryState.promise = (async () => {
       if (context.messageWorker && typeof context.messageWorker.stop === 'function') {
         await context.messageWorker.stop('session_recovery');
@@ -455,6 +457,7 @@ class MultiSessionRuntime {
 
       recoveryState.attempts = 0;
       recoveryState.blockedUntil = null;
+      recoveryCompleted = true;
       this.logger.info('Session recovery completed.', {
         accountId,
         sessionName: this.sessionManager.getSnapshot(accountId).sessionName,
@@ -483,8 +486,25 @@ class MultiSessionRuntime {
       }
 
       return false;
-    }).finally(() => {
+    }).finally(async () => {
       recoveryState.promise = null;
+
+      if (!recoveryCompleted || typeof this.sessionManager.ensureMessageWorkerStarted !== 'function') {
+        return;
+      }
+
+      try {
+        await this.sessionManager.ensureMessageWorkerStarted(accountId);
+      } catch (error) {
+        const latestContext = this.sessionManager.get(accountId);
+
+        this.logger.warn('Failed to restart session message worker after recovery completion.', {
+          accountId,
+          sessionName: latestContext?.sessionName || context.sessionName,
+          code: error?.code || null,
+          message: error?.message || String(error),
+        });
+      }
     });
 
     return recoveryState.promise;
