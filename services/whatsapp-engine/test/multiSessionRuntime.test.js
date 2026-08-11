@@ -218,6 +218,90 @@ test('sync updates an existing managed session from manual to automatic without 
   assert.equal(harness.active.get('11').hasClient, true);
 });
 
+test('getDiagnosticSnapshot returns a safe account snapshot without mutating runtime state', () => {
+  const harness = createHarness(async () => []);
+
+  harness.active.set('8', {
+    accountId: 8,
+    sessionName: 'wa_eight',
+    state: 'ready',
+    desiredState: 'running',
+    automaticSendingEnabled: true,
+    generation: 5,
+    isReady: true,
+    waitingForReady: false,
+    hasClient: true,
+    client: { secret: true },
+    apiToken: 'hidden-token',
+    qr: 'hidden-qr',
+    rawQr: 'hidden-raw-qr',
+    message: 'hidden-message',
+    recipient: 'hidden-recipient',
+    messageWorker: {
+      isRunning: true,
+      isCycleRunning: false,
+      hasTimer: true,
+      sendingMode: 'automatic',
+      nextAutomaticSendNotBefore: 123456,
+      lastCycleStartedAt: '2026-08-11T10:00:00.000Z',
+      lastCycleFinishedAt: '2026-08-11T10:00:05.000Z',
+      lastError: { name: null, message: 'worker warning', code: null },
+      processedCount: 7,
+      sentCount: 5,
+      failedCount: 2,
+      client: { nested: true },
+      token: 'nested-token',
+      rawQr: 'nested-qr',
+      message: 'nested-message',
+      recipient: 'nested-recipient',
+    },
+  });
+
+  harness.runtime.getRecoveryState(8).promise = Promise.resolve();
+
+  const snapshot = harness.runtime.getDiagnosticSnapshot(8);
+  const allSnapshots = harness.runtime.getDiagnosticSnapshot();
+
+  assert.equal(snapshot.accountId, 8);
+  assert.equal(snapshot.sessionName, 'wa_eight');
+  assert.equal(snapshot.state, 'ready');
+  assert.equal(snapshot.desiredState, 'running');
+  assert.equal(snapshot.automaticSendingEnabled, true);
+  assert.equal(snapshot.generation, 5);
+  assert.equal(snapshot.isReady, true);
+  assert.equal(snapshot.waitingForReady, false);
+  assert.equal(snapshot.hasClient, true);
+  assert.equal(snapshot.isRecovering, true);
+  assert.deepEqual(snapshot.messageWorker, {
+    isRunning: true,
+    isCycleRunning: false,
+    hasTimer: true,
+    sendingMode: 'automatic',
+    nextAutomaticSendNotBefore: 123456,
+    lastCycleStartedAt: '2026-08-11T10:00:00.000Z',
+    lastCycleFinishedAt: '2026-08-11T10:00:05.000Z',
+    lastError: { name: null, message: 'worker warning', code: null },
+    processedCount: 7,
+    sentCount: 5,
+    failedCount: 2,
+  });
+  assert.equal(Array.isArray(allSnapshots), true);
+  assert.equal(allSnapshots.length, 1);
+  assert.equal('client' in snapshot, false);
+  assert.equal('apiToken' in snapshot, false);
+  assert.equal('qr' in snapshot, false);
+  assert.equal('rawQr' in snapshot, false);
+  assert.equal('message' in snapshot, false);
+  assert.equal('recipient' in snapshot, false);
+  assert.equal('client' in snapshot.messageWorker, false);
+  assert.equal('token' in snapshot.messageWorker, false);
+  assert.equal('rawQr' in snapshot.messageWorker, false);
+  assert.equal('message' in snapshot.messageWorker, false);
+  assert.equal('recipient' in snapshot.messageWorker, false);
+  assert.equal(harness.started.length, 0);
+  assert.equal(harness.stopped.length, 0);
+  assert.equal(harness.active.get('8').generation, 5);
+});
 test('sync updates an existing managed session from automatic to manual without recreating it', async () => {
   const harness = createHarness(async () => [
     { id: 12, session_name: 'wa_twelve', session_desired_state: 'running', automatic_sending_enabled: false },

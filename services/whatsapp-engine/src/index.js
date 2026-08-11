@@ -858,6 +858,27 @@ const shutdownActiveRuntime = async (signal) => {
   return runtimeShutdownPromise;
 };
 
+const logRuntimeDiagnosticSnapshot = (accountId = null) => {
+  if (!activeRuntime || typeof activeRuntime.getDiagnosticSnapshot !== 'function') {
+    logger.warn('Runtime diagnostic snapshot is unavailable.', {
+      runtime: activeRuntime?.mode || 'unknown',
+      accountId: accountId ?? null,
+    });
+
+    return null;
+  }
+
+  const snapshot = activeRuntime.getDiagnosticSnapshot(accountId);
+
+  logger.info('Runtime diagnostic snapshot requested.', {
+    runtime: activeRuntime.mode || 'unknown',
+    accountId: accountId ?? null,
+    snapshot,
+  });
+
+  return snapshot;
+};
+
 const startEngine = async (dependencies = {}) => {
   activeRuntime = createEngineRuntime(dependencies);
 
@@ -867,6 +888,10 @@ const startEngine = async (dependencies = {}) => {
 
   process.on('SIGTERM', () => {
     void shutdownActiveRuntime('SIGTERM');
+  });
+
+  process.on('SIGUSR2', () => {
+    logRuntimeDiagnosticSnapshot(8);
   });
 
   return activeRuntime.start();
@@ -899,4 +924,5 @@ module.exports = {
   validateMultiSessionRuntimeConfig,
   shutdownActiveRuntime,
   restartWhatsappClient,
+  logRuntimeDiagnosticSnapshot,
 };

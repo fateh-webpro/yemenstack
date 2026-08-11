@@ -317,6 +317,64 @@ class MultiSessionRuntime {
     return this.sessionManager.getAllSnapshots().find((snapshot) => String(snapshot.accountId) === String(accountId)) || null;
   }
 
+  buildDiagnosticMessageWorkerSnapshot(workerSnapshot) {
+    if (!workerSnapshot) {
+      return null;
+    }
+
+    const lastError = workerSnapshot.lastError && typeof workerSnapshot.lastError === 'object'
+      ? {
+        name: workerSnapshot.lastError.name ?? null,
+        message: workerSnapshot.lastError.message ?? null,
+        code: workerSnapshot.lastError.code ?? null,
+      }
+      : null;
+
+    return {
+      isRunning: Boolean(workerSnapshot.isRunning),
+      isCycleRunning: Boolean(workerSnapshot.isCycleRunning),
+      hasTimer: Boolean(workerSnapshot.hasTimer),
+      sendingMode: workerSnapshot.sendingMode === 'automatic' ? 'automatic' : 'manual',
+      nextAutomaticSendNotBefore: workerSnapshot.nextAutomaticSendNotBefore ?? null,
+      lastCycleStartedAt: workerSnapshot.lastCycleStartedAt ?? null,
+      lastCycleFinishedAt: workerSnapshot.lastCycleFinishedAt ?? null,
+      lastError,
+      processedCount: Number.isFinite(workerSnapshot.processedCount) ? workerSnapshot.processedCount : 0,
+      sentCount: Number.isFinite(workerSnapshot.sentCount) ? workerSnapshot.sentCount : 0,
+      failedCount: Number.isFinite(workerSnapshot.failedCount) ? workerSnapshot.failedCount : 0,
+    };
+  }
+
+  buildDiagnosticSnapshot(snapshot) {
+    if (!snapshot) {
+      return null;
+    }
+
+    return {
+      accountId: snapshot.accountId,
+      sessionName: snapshot.sessionName,
+      state: snapshot.state,
+      desiredState: snapshot.desiredState,
+      automaticSendingEnabled: Boolean(snapshot.automaticSendingEnabled),
+      generation: snapshot.generation ?? null,
+      isReady: Boolean(snapshot.isReady),
+      waitingForReady: Boolean(snapshot.waitingForReady),
+      hasClient: Boolean(snapshot.hasClient),
+      isRecovering: this.isRecovering(snapshot.accountId),
+      messageWorker: this.buildDiagnosticMessageWorkerSnapshot(snapshot.messageWorker),
+    };
+  }
+
+  getDiagnosticSnapshot(accountId = null) {
+    if (accountId === null || accountId === undefined) {
+      return this.sessionManager
+        .getAllSnapshots()
+        .map((snapshot) => this.buildDiagnosticSnapshot(snapshot));
+    }
+
+    return this.buildDiagnosticSnapshot(this.getManagedSnapshot(accountId));
+  }
+
   getRecoveryState(accountId) {
     const key = String(accountId);
 
